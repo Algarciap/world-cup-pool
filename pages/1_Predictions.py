@@ -120,126 +120,191 @@ def _show_standings(standings: list[dict]) -> None:
     st.markdown(table, unsafe_allow_html=True)
 
 
-# ── Tabs: one per group + Knockout ────────────────────────────────────────────
-# Show a compact progress bar above the tabs (doesn't change tab labels)
-done_groups   = [g for g in group_names if g in saved_group_preds]
+
+# ── Progress summary ──────────────────────────────────────────────────────────
+done_groups = [g for g in group_names if g in saved_group_preds]
 partial_groups = [
     g for g in group_names
     if g not in saved_group_preds
     and any(m["id"] in saved_bets for m in matches_by_group.get(g, []))
 ]
-if done_groups or partial_groups:
-    parts = []
-    if done_groups:
-        parts.append(f"✅ Done: {' · '.join(done_groups)}")
-    if partial_groups:
-        parts.append(f"⚠️ Partial: {' · '.join(partial_groups)}")
-    remaining = len(group_names) - len(done_groups) - len(partial_groups)
-    if remaining:
-        parts.append(f"📝 {remaining} group(s) not started")
-    st.caption("   ".join(parts))
+n_groups_done = len(done_groups)
+n_ko_done = len(saved_ko_preds)
+champion = saved_ko_preds.get("FINAL", {}).get("predicted_winner")
 
-tab_labels = [f"Group {g}" for g in group_names] + ["🎯 Knockout"]
-tabs = st.tabs(tab_labels)
+pc1, pc2, pc3 = st.columns(3)
+with pc1:
+    grp_delta = "\u2705 Complete!" if n_groups_done == 12 else f"{12 - n_groups_done} group(s) remaining"
+    st.metric("\u26bd Group Predictions", f"{n_groups_done} / 12", grp_delta)
+with pc2:
+    st.metric("\U0001f3af Knockout Picks", f"{n_ko_done} / 31")
+with pc3:
+    st.metric("\U0001f3c6 Predicted Champion", champion or "\u2014 not yet picked")
 
-# ── Group tabs ─────────────────────────────────────────────────────────────────
-for tab, group in zip(tabs[:-1], group_names):
-    with tab:
-        matches = matches_by_group[group]
-        teams = teams_by_group.get(group, [])
+st.divider()
 
-        teams_html = " · ".join(f'{flag_img(t)}{t}' for t in teams)
-        st.markdown(f"Teams: {teams_html}", unsafe_allow_html=True)
+# ── Two stable tabs ────────────────────────────────────────────────────────────
+tab_groups, tab_ko = st.tabs(["\u26bd Group Predictions", "\U0001f3af Knockout"])
 
-        # Inline completion status (stable — shown in body, not the tab label)
-        if group in saved_group_preds:
-            st.caption("✅ All 6 matches saved")
-        elif any(m["id"] in saved_bets for m in matches):
-            n_s = sum(1 for m in matches if m["id"] in saved_bets)
-            st.caption(f"⚠️ {n_s}/{len(matches)} matches saved — don't forget to save all!")
-        if st.session_state.get("_last_saved_group") == group:
-            st.success(f"✅ Group {group} saved!")
-            last_standings = st.session_state.get("_last_saved_standings")
-            if last_standings:
-                _show_standings(last_standings)
-            st.session_state.pop("_last_saved_group", None)
-            st.session_state.pop("_last_saved_standings", None)
+# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+# GROUP PREDICTIONS TAB
+# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+with tab_groups:
+    if "active_group" not in st.session_state or st.session_state.active_group not in group_names:
+        st.session_state.active_group = group_names[0]
+    active_group = st.session_state.active_group
+    group_idx = group_names.index(active_group)
 
-        # Show standings preview if this group is already fully saved
-        group_pred = saved_group_preds.get(group)
+    # ── Group selector buttons (A – L) ────────────────────────────────────────
+    btn_cols = st.columns(len(group_names))
+    for i, g in enumerate(group_names):
+        with btn_cols[i]:
+            if g in saved_group_preds:
+                label = f"\u2705 {g}"
+            elif g in partial_groups:
+                label = f"\u26a0\ufe0f {g}"
+            else:
+                label = g
+            if st.button(
+                label, key=f"grp_btn_{g}",
+                type="primary" if g == active_group else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state.active_group = g
+                st.rerun()
 
-        with st.form(f"form_{group}"):
-            batch: dict[int, tuple[str, int, int]] = {}
+    st.markdown("---")
 
-            for match in matches:
-                mid = match["id"]
-                home = match["home_team"]
-                away = match["away_team"]
-                date_str = match["match_date"]
-                existing = saved_bets.get(mid, {})
+    # ── Selected group content ─────────────────────────────────────────────────
+    group = active_group
+    matches = matches_by_group[group]
+    teams = teams_by_group.get(group, [])
 
+    teams_html = " \u00b7 ".join(f"{flag_img(t)}{t}" for t in teams)
+    st.markdown(f"**Group {group}** &nbsp;&mdash;&nbsp; {teams_html}", unsafe_allow_html=True)
+
+    if group in saved_group_preds:
+        st.caption("\u2705 All 6 matches saved")
+    elif any(m["id"] in saved_bets for m in matches):
+        n_s = sum(1 for m in matches if m["id"] in saved_bets)
+        st.caption(f"\u26a0\ufe0f {n_s}/{len(matches)} matches saved \u2014 remember to save all 6!")
+
+    if st.session_state.get("_last_saved_group") == group:
+        st.success(f"\u2705 Group {group} saved!")
+        last_standings = st.session_state.get("_last_saved_standings")
+        if last_standings:
+            _show_standings(last_standings)
+        st.session_state.pop("_last_saved_group", None)
+        st.session_state.pop("_last_saved_standings", None)
+
+    group_pred = saved_group_preds.get(group)
+
+    # ── Match prediction form ──────────────────────────────────────────────────
+    with st.form(f"form_{group}"):
+        batch: dict[int, tuple[str, int, int]] = {}
+
+        for match in matches:
+            mid = match["id"]
+            home = match["home_team"]
+            away = match["away_team"]
+            date_str = match["match_date"]
+            existing = saved_bets.get(mid, {})
+
+            # [flag + team name]  [home score]  [:]  [away score]  [team name + flag]
+            c_home, c_hs, c_sep, c_as, c_away = st.columns([4, 1, 0.4, 1, 4])
+            with c_home:
                 st.markdown(
-                    f'{flag_img(home)}<b>{home}</b> vs {flag_img(away)}<b>{away}</b>'
-                    f' &mdash; {date_str[:10]} {date_str[11:16]} UTC',
+                    f'{flag_img(home, 24)}&nbsp;<span style="font-size:1rem;font-weight:600">{home}</span>',
+                    unsafe_allow_html=True,
+                )
+            with c_hs:
+                hs = st.number_input(
+                    "Home", min_value=0, max_value=20,
+                    value=existing.get("predicted_home_score") or 0,
+                    step=1, disabled=locked, key=f"hs_{mid}",
+                    label_visibility="collapsed",
+                )
+            with c_sep:
+                st.markdown(
+                    "<div style='text-align:center;padding-top:6px;font-size:1.4rem;font-weight:300'>:</div>",
+                    unsafe_allow_html=True,
+                )
+            with c_as:
+                as_ = st.number_input(
+                    "Away", min_value=0, max_value=20,
+                    value=existing.get("predicted_away_score") or 0,
+                    step=1, disabled=locked, key=f"as_{mid}",
+                    label_visibility="collapsed",
+                )
+            with c_away:
+                st.markdown(
+                    f'<div style="text-align:right"><span style="font-size:1rem;font-weight:600">'
+                    f'{away}</span>&nbsp;{flag_img(away, 24)}</div>',
                     unsafe_allow_html=True,
                 )
 
-                options = [f"{home} wins", "Draw", f"{away} wins"]
+            if hs > as_:
+                winner_code = "home"
+                result_html = f'<span style="color:#4CAF50;font-size:0.85rem"><b>{home}</b> wins</span>'
+            elif as_ > hs:
+                winner_code = "away"
+                result_html = f'<span style="color:#4CAF50;font-size:0.85rem"><b>{away}</b> wins</span>'
+            else:
+                winner_code = "draw"
+                result_html = '<span style="color:#FFC107;font-size:0.85rem"><b>Draw</b></span>'
 
-                col_hs, col_result, col_as = st.columns([2, 3, 2])
-                with col_hs:
-                    hs = st.number_input(
-                        home, min_value=0, max_value=20,
-                        value=existing.get("predicted_home_score") or 0,
-                        step=1, disabled=locked, key=f"hs_{mid}",
-                    )
-                with col_as:
-                    as_ = st.number_input(
-                        away, min_value=0, max_value=20,
-                        value=existing.get("predicted_away_score") or 0,
-                        step=1, disabled=locked, key=f"as_{mid}",
-                    )
-
-                if hs > as_:
-                    winner_code = "home"
-                    result_html = f'<span style="color:#4CAF50">▶ <b>{home}</b> wins</span>'
-                elif as_ > hs:
-                    winner_code = "away"
-                    result_html = f'<span style="color:#4CAF50">▶ <b>{away}</b> wins</span>'
-                else:
-                    winner_code = "draw"
-                    result_html = '<span style="color:#FFC107">▶ <b>Draw</b></span>'
-
-                with col_result:
-                    st.markdown(result_html, unsafe_allow_html=True)
-
-                batch[mid] = (winner_code, int(hs), int(as_))
-                st.divider()
-
-            submitted = st.form_submit_button(
-                f"💾 Save Group {group}", disabled=locked
+            st.markdown(
+                f'<div style="text-align:center;margin:2px 0">{result_html}</div>'
+                f'<div style="text-align:center;color:#888;font-size:0.75rem">'
+                f'{date_str[:10]} {date_str[11:16]} UTC</div>',
+                unsafe_allow_html=True,
             )
+            st.divider()
+            batch[mid] = (winner_code, int(hs), int(as_))
 
-        if submitted and not locked:
-            with st.spinner(f"Saving Group {group}..."):
-                for mid, (w, hs_val, as_val) in batch.items():
-                    upsert_bet(user["id"], mid, w, hs_val, as_val)
-                derive_and_save_group_prediction(user["id"], group)
-            standings = _compute_standings(batch, matches)
-            st.session_state._needs_fresh_data = True
-            st.session_state._last_saved_group = group
-            st.session_state._last_saved_standings = standings
-            st.rerun()
+        submitted = st.form_submit_button(
+            f"\U0001f4be Save Group {group}", disabled=locked, use_container_width=True,
+        )
 
-# ── Knockout tab ───────────────────────────────────────────────────────────────
-with tabs[-1]:    # ── Group Stage Summary ───────────────────────────────────────────
+    if submitted and not locked:
+        with st.spinner(f"Saving Group {group}..."):
+            for mid, (w, hs_val, as_val) in batch.items():
+                upsert_bet(user["id"], mid, w, hs_val, as_val)
+            derive_and_save_group_prediction(user["id"], group)
+        standings = _compute_standings(batch, matches)
+        st.session_state._needs_fresh_data = True
+        st.session_state._last_saved_group = group
+        st.session_state._last_saved_standings = standings
+        st.rerun()
+
+    # ── Prev / Next navigation ─────────────────────────────────────────────────
+    nav_l, _, nav_r = st.columns([2, 8, 2])
+    with nav_l:
+        if group_idx > 0:
+            if st.button(f"\u2190 Group {group_names[group_idx - 1]}",
+                         use_container_width=True):
+                st.session_state.active_group = group_names[group_idx - 1]
+                st.rerun()
+    with nav_r:
+        if group_idx < len(group_names) - 1:
+            if st.button(f"Group {group_names[group_idx + 1]} \u2192",
+                         use_container_width=True, type="primary"):
+                st.session_state.active_group = group_names[group_idx + 1]
+                st.rerun()
+        else:
+            st.caption("All groups done! Open the \U0001f3af Knockout tab.")
+
+# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+# KNOCKOUT TAB
+# \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+with tab_ko:
     all_done = len(done_groups) == len(group_names)
     if done_groups:
         with st.expander(
-            f"📊 Group Stage Summary ({len(done_groups)}/{len(group_names)} groups)",
+            f"\U0001f4ca Group Stage Summary ({len(done_groups)}/{len(group_names)} groups)",
             expanded=all_done,
         ):
-            MEDALS = ["🥇", "🥈", "🥉"]
+            MEDALS = ["\U0001f947", "\U0001f948", "\U0001f949"]
             cols = st.columns(4)
             for i, g in enumerate(sorted(done_groups)):
                 pred = saved_group_preds[g]
@@ -256,13 +321,14 @@ with tabs[-1]:    # ── Group Stage Summary ───────────
                             )
                     st.markdown("")
         st.divider()
+
     if locked:
-        st.warning("🔒 Predictions are locked.")
+        st.warning("\U0001f512 Predictions are locked.")
     else:
         st.info(
             "Predict who wins each match. "
             "Once you save a round, the **next round shows who you predicted** "
-            "to face each other — so the bracket builds itself."
+            "to face each other \u2014 so the bracket builds itself."
         )
 
     all_teams = sorted(t for teams in teams_by_group.values() for t in teams)
