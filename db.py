@@ -226,26 +226,41 @@ def derive_and_save_group_prediction(user_id: str, group_name: str) -> None:
     )
     bets = get_user_bets(user_id)
 
-    pts: dict[str, int] = {}
+    # Accumulate points + goals for tiebreaker (GD, then GF)
+    stats: dict[str, dict] = {}
     for m in matches:
+        h, a = m["home_team"], m["away_team"]
+        for t in (h, a):
+            stats.setdefault(t, {"pts": 0, "gf": 0, "ga": 0})
         bet = bets.get(m["id"])
         if not bet:
             continue
-        h, a = m["home_team"], m["away_team"]
-        pts.setdefault(h, 0)
-        pts.setdefault(a, 0)
+        hs = bet.get("predicted_home_score") or 0
+        as_ = bet.get("predicted_away_score") or 0
+        stats[h]["gf"] += hs
+        stats[h]["ga"] += as_
+        stats[a]["gf"] += as_
+        stats[a]["ga"] += hs
         if bet["predicted_winner"] == "home":
-            pts[h] += 3
+            stats[h]["pts"] += 3
         elif bet["predicted_winner"] == "away":
-            pts[a] += 3
+            stats[a]["pts"] += 3
         else:
-            pts[h] += 1
-            pts[a] += 1
+            stats[h]["pts"] += 1
+            stats[a]["pts"] += 1
 
-    if len(pts) < 4:
-        return  # user hasn't predicted all matches yet
+    if len(stats) < 4:
+        return  # group hasn't been fully initialised yet
 
-    standings = sorted(pts.keys(), key=lambda t: pts[t], reverse=True)
+    # Only save if all matches in the group are predicted
+    if sum(1 for m in matches if m["id"] in bets) < len(matches):
+        return
+
+    standings = sorted(
+        stats.keys(),
+        key=lambda t: (stats[t]["pts"], stats[t]["gf"] - stats[t]["ga"], stats[t]["gf"]),
+        reverse=True,
+    )
     db.table("group_predictions").upsert(
         {
             "user_id": user_id,
@@ -311,6 +326,24 @@ def upsert_knockout_pred(user_id: str, slot: str, predicted_winner: str) -> None
 def get_leaderboard() -> list[dict]:
     db = _client()
     return db.table("leaderboard").select("*").execute().data
+
+
+def get_all_users_predictions() -> dict:
+    """Returns all users with their group + knockout predictions (for Others page)."""
+    db = _client()
+    users = db.table("users").select("id, name").order("name").execute().data
+    group_preds = db.table("group_predictions").select("*").execute().data
+    ko_preds = db.table("knockout_predictions").select("*").execute().data
+
+    by_user_group: dict[str, dict[str, dict]] = {}
+    for p in group_preds:
+        by_user_group.setdefault(p["user_id"], {})[p["group_name"]] = p
+
+    by_user_ko: dict[str, dict[str, dict]] = {}
+    for p in ko_preds:
+        by_user_ko.setdefault(p["user_id"], {})[p["slot"]] = p
+
+    return {"users": users, "group_preds": by_user_group, "ko_preds": by_user_ko}
 
 
 # ── Admin: match results & point calculation ───────────────────────────────────

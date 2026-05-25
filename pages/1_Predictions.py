@@ -54,7 +54,64 @@ saved_group_preds = get_user_group_preds(user["id"])
 saved_ko_preds = get_user_knockout_preds(user["id"])
 group_names = sorted(matches_by_group.keys())
 
-_WINNER_TO_IDX = {"home": 0, "draw": 1, "away": 2}
+
+def _compute_standings(
+    batch: dict[int, tuple[str, int, int]], matches: list[dict]
+) -> list[dict]:
+    """Derive group standings from batch {match_id: (winner, home_score, away_score)}."""
+    data: dict[str, dict] = {}
+    for m in matches:
+        h, a = m["home_team"], m["away_team"]
+        for t in (h, a):
+            data.setdefault(t, {"pts": 0, "gf": 0, "ga": 0})
+        entry = batch.get(m["id"])
+        if not entry:
+            continue
+        w, hs, as_ = entry
+        data[h]["gf"] += hs
+        data[h]["ga"] += as_
+        data[a]["gf"] += as_
+        data[a]["ga"] += hs
+        if w == "home":
+            data[h]["pts"] += 3
+        elif w == "away":
+            data[a]["pts"] += 3
+        else:
+            data[h]["pts"] += 1
+            data[a]["pts"] += 1
+    return sorted(
+        [{"team": t, "pts": d["pts"], "gd": d["gf"] - d["ga"], "gf": d["gf"]}
+         for t, d in data.items()],
+        key=lambda x: (x["pts"], x["gd"], x["gf"]),
+        reverse=True,
+    )
+
+
+def _show_standings(standings: list[dict]) -> None:
+    MEDALS = ["🥇", "🥈", "🥉", "4️⃣"]
+    rows = ""
+    for i, s in enumerate(standings):
+        medal = MEDALS[i] if i < len(MEDALS) else str(i + 1)
+        gd_str = f"+{s['gd']}" if s["gd"] > 0 else str(s["gd"])
+        rows += (
+            f"<tr><td style='padding:3px 8px'>{medal}</td>"
+            f"<td style='padding:3px 8px'>{flag_img(s['team'])}<b>{s['team']}</b></td>"
+            f"<td style='padding:3px 8px; text-align:center'><b>{s['pts']}</b></td>"
+            f"<td style='padding:3px 8px; text-align:center'>{gd_str}</td>"
+            f"<td style='padding:3px 8px; text-align:center'>{s['gf']}</td></tr>\n"
+        )
+    table = (
+        "<table style='border-collapse:collapse; margin:4px 0'>"
+        "<thead><tr style='border-bottom:1px solid #555'>"
+        "<th style='padding:3px 8px; text-align:left'>#</th>"
+        "<th style='padding:3px 8px; text-align:left'>Team</th>"
+        "<th style='padding:3px 8px'>Pts</th>"
+        "<th style='padding:3px 8px'>GD</th>"
+        "<th style='padding:3px 8px'>GF</th>"
+        "</tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
+    st.markdown(table, unsafe_allow_html=True)
 
 
 def _completion_icon(group: str) -> str:
@@ -80,6 +137,22 @@ for tab, group in zip(tabs[:-1], group_names):
         teams_html = " · ".join(f'{flag_img(t)}{t}' for t in teams)
         st.markdown(f"Teams: {teams_html}", unsafe_allow_html=True)
 
+        # Show standings preview if this group is already fully saved
+        group_pred = saved_group_preds.get(group)
+        if group_pred:
+            saved_batch = {}
+            for m in matches:
+                bet = saved_bets.get(m["id"], {})
+                if bet:
+                    saved_batch[m["id"]] = (
+                        bet.get("predicted_winner", "draw"),
+                        bet.get("predicted_home_score") or 0,
+                        bet.get("predicted_away_score") or 0,
+                    )
+            if len(saved_batch) == len(matches):
+                with st.expander("📊 Predicted standings", expanded=False):
+                    _show_standings(_compute_standings(saved_batch, matches))
+
         with st.form(f"form_{group}"):
             batch: dict[int, tuple[str, int, int]] = {}
 
@@ -97,18 +170,8 @@ for tab, group in zip(tabs[:-1], group_names):
                 )
 
                 options = [f"{home} wins", "Draw", f"{away} wins"]
-                default_idx = _WINNER_TO_IDX.get(
-                    existing.get("predicted_winner", "home"), 0
-                )
 
-                col_radio, col_hs, col_as = st.columns([4, 1, 1])
-                with col_radio:
-                    winner_label = st.radio(
-                        "Result", options,
-                        index=default_idx, horizontal=True,
-                        disabled=locked, key=f"w_{mid}",
-                        label_visibility="collapsed",
-                    )
+                col_hs, col_result, col_as = st.columns([2, 3, 2])
                 with col_hs:
                     hs = st.number_input(
                         home, min_value=0, max_value=20,
@@ -122,12 +185,18 @@ for tab, group in zip(tabs[:-1], group_names):
                         step=1, disabled=locked, key=f"as_{mid}",
                     )
 
-                if winner_label == options[0]:
+                if hs > as_:
                     winner_code = "home"
-                elif winner_label == options[1]:
-                    winner_code = "draw"
-                else:
+                    result_html = f'<span style="color:#4CAF50">▶ <b>{home}</b> wins</span>'
+                elif as_ > hs:
                     winner_code = "away"
+                    result_html = f'<span style="color:#4CAF50">▶ <b>{away}</b> wins</span>'
+                else:
+                    winner_code = "draw"
+                    result_html = '<span style="color:#FFC107">▶ <b>Draw</b></span>'
+
+                with col_result:
+                    st.markdown(result_html, unsafe_allow_html=True)
 
                 batch[mid] = (winner_code, int(hs), int(as_))
                 st.divider()
@@ -137,16 +206,15 @@ for tab, group in zip(tabs[:-1], group_names):
             )
 
         if submitted and not locked:
-            for mid, (w, hs_val, as_val) in batch.items():
-                upsert_bet(user["id"], mid, w, hs_val, as_val)
-            derive_and_save_group_prediction(user["id"], group)
-            get_user_bets.clear()
-            get_user_group_preds.clear()
-            st.success(
-                f"✅ Group {group} saved — {len(batch)} matches predicted, "
-                "group standings derived automatically."
-            )
-            st.rerun()
+            with st.spinner(f"Saving Group {group}..."):
+                for mid, (w, hs_val, as_val) in batch.items():
+                    upsert_bet(user["id"], mid, w, hs_val, as_val)
+                derive_and_save_group_prediction(user["id"], group)
+                get_user_bets.clear()
+                get_user_group_preds.clear()
+            standings = _compute_standings(batch, matches)
+            st.success(f"✅ Group {group} saved!")
+            _show_standings(standings)
 
 # ── Knockout tab ───────────────────────────────────────────────────────────────
 with tabs[-1]:
@@ -161,6 +229,43 @@ with tabs[-1]:
 
     all_teams = sorted(t for teams in teams_by_group.values() for t in teams)
     team_options = ["— Select team —"] + all_teams
+
+    def _best_third(group_pool: list[str]) -> str | None:
+        """Find the best predicted 3rd-place team from the given group pool
+        based on the user's own predicted match scores."""
+        candidates = []
+        for g in group_pool:
+            third = saved_group_preds.get(g, {}).get("third_place")
+            if not third:
+                continue
+            pts, gd, gf = 0, 0, 0
+            for m in matches_by_group.get(g, []):
+                bet = saved_bets.get(m["id"], {})
+                if not bet:
+                    continue
+                hs = bet.get("predicted_home_score") or 0
+                as_ = bet.get("predicted_away_score") or 0
+                if m["home_team"] == third:
+                    gf += hs
+                    gd += hs - as_
+                    w = bet.get("predicted_winner")
+                    if w == "home":
+                        pts += 3
+                    elif w == "draw":
+                        pts += 1
+                elif m["away_team"] == third:
+                    gf += as_
+                    gd += as_ - hs
+                    w = bet.get("predicted_winner")
+                    if w == "away":
+                        pts += 3
+                    elif w == "draw":
+                        pts += 1
+            candidates.append((third, pts, gd, gf))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: (x[1], x[2], x[3]), reverse=True)
+        return candidates[0][0]
 
     # Official FIFA 2026 R32 slot → group position sources
     R32_SOURCES: dict[str, tuple[str, str]] = {
@@ -218,8 +323,9 @@ with tabs[-1]:
         elif len(pos) == 2 and pos[0] == "2":
             return saved_group_preds.get(pos[1], {}).get("second_place") or f"2nd Group {pos[1]}"
         elif pos[0] == "3":
-            groups = "/".join(pos[1:])
-            return f"Best 3rd ({groups})"
+            group_pool = list(pos[1:])
+            best = _best_third(group_pool)
+            return best if best else f"Best 3rd ({'/' .join(group_pool)})"
         return pos
 
     def _team_idx(val: str | None, opts: list[str]) -> int:
@@ -303,10 +409,10 @@ with tabs[-1]:
             if missing:
                 st.error(f"Please select a team for every match.")
             else:
-                for slot, team in picks.items():
-                    upsert_knockout_pred(user["id"], slot, team)
-                get_user_knockout_preds.clear()
+                with st.spinner(f"Saving {round_name}..."):
+                    for slot, team in picks.items():
+                        upsert_knockout_pred(user["id"], slot, team)
+                    get_user_knockout_preds.clear()
                 st.success(f"✅ {round_name} saved.")
-                st.rerun()
 
         st.divider()
