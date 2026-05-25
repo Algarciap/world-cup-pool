@@ -23,9 +23,6 @@ def _secret(key: str) -> str:
     except (FileNotFoundError, KeyError):
         return os.getenv(key, "")
 
-SUPABASE_URL: str = _secret("SUPABASE_URL")
-SUPABASE_SERVICE_KEY: str = _secret("SUPABASE_SERVICE_KEY")
-
 # Bets are locked when the tournament kicks off (Mexico vs South Africa)
 LOCK_DT = datetime(2026, 6, 11, 19, 0, 0, tzinfo=timezone.utc)
 
@@ -97,12 +94,14 @@ def is_locked() -> bool:
 
 
 def _client() -> Client:
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+    url = _secret("SUPABASE_URL")
+    key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not key:
         raise RuntimeError(
-            "Missing environment variables. Create a .env file with "
-            "SUPABASE_URL and SUPABASE_SERVICE_KEY."
+            "Missing Supabase credentials. Add SUPABASE_URL and "
+            "SUPABASE_SERVICE_KEY to Streamlit Cloud secrets or .env file."
         )
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    return create_client(url, key)
 
 
 # ── Users ──────────────────────────────────────────────────────────────────────
