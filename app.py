@@ -8,6 +8,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Maintenance mode ───────────────────────────────────────────────────────────
+MAINTENANCE = True
+if MAINTENANCE:
+    st.title("⚽ World Cup 2026 — Prediction Pool")
+    st.info("🔧 We're making some improvements. Check back soon!")
+    st.stop()
+# ──────────────────────────────────────────────────────────────────────────────
+
 if "user" not in st.session_state:
     st.session_state.user = None
 
