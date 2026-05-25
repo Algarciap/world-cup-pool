@@ -270,6 +270,7 @@ with tab_groups:
         with st.spinner(f"Saving Group {group}..."):
             for mid, (w, hs_val, as_val) in batch.items():
                 upsert_bet(user["id"], mid, w, hs_val, as_val)
+            get_user_bets.clear()  # ensure derive sees the freshly-written rows
             derive_and_save_group_prediction(user["id"], group)
         standings = _compute_standings(batch, matches)
         st.session_state._needs_fresh_data = True

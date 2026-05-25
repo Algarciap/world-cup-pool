@@ -224,7 +224,9 @@ def derive_and_save_group_prediction(user_id: str, group_name: str) -> None:
         .execute()
         .data
     )
-    bets = get_user_bets(user_id)
+    # Bypass the @st.cache_data wrapper so we always read the freshly-written rows
+    bets_rows = db.table("bets").select("*").eq("user_id", user_id).execute().data
+    bets: dict[int, dict] = {row["match_id"]: row for row in bets_rows}
 
     # Accumulate points + goals for tiebreaker (GD, then GF)
     stats: dict[str, dict] = {}

@@ -39,9 +39,8 @@ if not upcoming:
 else:
     for match in upcoming:
         label = (
-            f"{flag_img(match['home_team'])}{match['home_team']} "
-            f"vs {flag_img(match['away_team'])}{match['away_team']} "
-            f"— {match['match_date'][:10]}"
+            f"{match['home_team']} vs {match['away_team']}"
+            f" — {match['match_date'][:10]}"
         )
         with st.expander(label, expanded=False):
             with st.form(f"result_{match['id']}"):
