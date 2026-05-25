@@ -167,19 +167,6 @@ for tab, group in zip(tabs[:-1], group_names):
 
         # Show standings preview if this group is already fully saved
         group_pred = saved_group_preds.get(group)
-        if group_pred:
-            saved_batch = {}
-            for m in matches:
-                bet = saved_bets.get(m["id"], {})
-                if bet:
-                    saved_batch[m["id"]] = (
-                        bet.get("predicted_winner", "draw"),
-                        bet.get("predicted_home_score") or 0,
-                        bet.get("predicted_away_score") or 0,
-                    )
-            if len(saved_batch) == len(matches):
-                with st.expander("📊 Predicted standings", expanded=False):
-                    _show_standings(_compute_standings(saved_batch, matches))
 
         with st.form(f"form_{group}"):
             batch: dict[int, tuple[str, int, int]] = {}
@@ -245,7 +232,30 @@ for tab, group in zip(tabs[:-1], group_names):
             st.rerun()
 
 # ── Knockout tab ───────────────────────────────────────────────────────────────
-with tabs[-1]:
+with tabs[-1]:    # ── Group Stage Summary ───────────────────────────────────────────
+    all_done = len(done_groups) == len(group_names)
+    if done_groups:
+        with st.expander(
+            f"📊 Group Stage Summary ({len(done_groups)}/{len(group_names)} groups)",
+            expanded=all_done,
+        ):
+            MEDALS = ["🥇", "🥈", "🥉"]
+            cols = st.columns(4)
+            for i, g in enumerate(sorted(done_groups)):
+                pred = saved_group_preds[g]
+                with cols[i % 4]:
+                    st.markdown(f"**Group {g}**")
+                    for medal, place in zip(
+                        MEDALS,
+                        [pred.get("first_place"), pred.get("second_place"), pred.get("third_place")],
+                    ):
+                        if place:
+                            st.markdown(
+                                f"{medal} {flag_img(place)}{place}",
+                                unsafe_allow_html=True,
+                            )
+                    st.markdown("")
+        st.divider()
     if locked:
         st.warning("🔒 Predictions are locked.")
     else:
