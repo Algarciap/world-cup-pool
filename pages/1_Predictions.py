@@ -120,19 +120,26 @@ def _show_standings(standings: list[dict]) -> None:
     st.markdown(table, unsafe_allow_html=True)
 
 
-def _completion_icon(group: str) -> str:
-    # A group prediction exists only after all 6 matches are saved
-    if group in saved_group_preds:
-        return " ✅"
-    matches = matches_by_group.get(group, [])
-    n_saved = sum(1 for m in matches if m["id"] in saved_bets)
-    if n_saved > 0:
-        return " ⚠️"
-    return ""
-
-
 # ── Tabs: one per group + Knockout ────────────────────────────────────────────
-tab_labels = [f"Group {g}{_completion_icon(g)}" for g in group_names] + ["🎯 Knockout"]
+# Show a compact progress bar above the tabs (doesn't change tab labels)
+done_groups   = [g for g in group_names if g in saved_group_preds]
+partial_groups = [
+    g for g in group_names
+    if g not in saved_group_preds
+    and any(m["id"] in saved_bets for m in matches_by_group.get(g, []))
+]
+if done_groups or partial_groups:
+    parts = []
+    if done_groups:
+        parts.append(f"✅ Done: {' · '.join(done_groups)}")
+    if partial_groups:
+        parts.append(f"⚠️ Partial: {' · '.join(partial_groups)}")
+    remaining = len(group_names) - len(done_groups) - len(partial_groups)
+    if remaining:
+        parts.append(f"📝 {remaining} group(s) not started")
+    st.caption("   ".join(parts))
+
+tab_labels = [f"Group {g}" for g in group_names] + ["🎯 Knockout"]
 tabs = st.tabs(tab_labels)
 
 # ── Group tabs ─────────────────────────────────────────────────────────────────
@@ -144,7 +151,12 @@ for tab, group in zip(tabs[:-1], group_names):
         teams_html = " · ".join(f'{flag_img(t)}{t}' for t in teams)
         st.markdown(f"Teams: {teams_html}", unsafe_allow_html=True)
 
-        # Show success message if this group was just saved
+        # Inline completion status (stable — shown in body, not the tab label)
+        if group in saved_group_preds:
+            st.caption("✅ All 6 matches saved")
+        elif any(m["id"] in saved_bets for m in matches):
+            n_s = sum(1 for m in matches if m["id"] in saved_bets)
+            st.caption(f"⚠️ {n_s}/{len(matches)} matches saved — don't forget to save all!")
         if st.session_state.get("_last_saved_group") == group:
             st.success(f"✅ Group {group} saved!")
             last_standings = st.session_state.get("_last_saved_standings")
