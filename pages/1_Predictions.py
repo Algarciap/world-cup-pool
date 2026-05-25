@@ -47,6 +47,12 @@ with st.expander("🏆 Scoring system", expanded=False):
 """)
 
 # ── Load data ──────────────────────────────────────────────────────────────────
+# Pre-clear caches if a save just happened so tab icons are fresh on this render
+if st.session_state.pop("_needs_fresh_data", False):
+    get_user_bets.clear()
+    get_user_group_preds.clear()
+    get_user_knockout_preds.clear()
+
 teams_by_group = get_teams_by_group()
 matches_by_group = get_group_matches()
 saved_bets = get_user_bets(user["id"])
@@ -115,10 +121,11 @@ def _show_standings(standings: list[dict]) -> None:
 
 
 def _completion_icon(group: str) -> str:
+    # A group prediction exists only after all 6 matches are saved
+    if group in saved_group_preds:
+        return " ✅"
     matches = matches_by_group.get(group, [])
     n_saved = sum(1 for m in matches if m["id"] in saved_bets)
-    if n_saved == len(matches):
-        return " ✅"
     if n_saved > 0:
         return " ⚠️"
     return ""
@@ -136,6 +143,15 @@ for tab, group in zip(tabs[:-1], group_names):
 
         teams_html = " · ".join(f'{flag_img(t)}{t}' for t in teams)
         st.markdown(f"Teams: {teams_html}", unsafe_allow_html=True)
+
+        # Show success message if this group was just saved
+        if st.session_state.get("_last_saved_group") == group:
+            st.success(f"✅ Group {group} saved!")
+            last_standings = st.session_state.get("_last_saved_standings")
+            if last_standings:
+                _show_standings(last_standings)
+            st.session_state.pop("_last_saved_group", None)
+            st.session_state.pop("_last_saved_standings", None)
 
         # Show standings preview if this group is already fully saved
         group_pred = saved_group_preds.get(group)
@@ -210,11 +226,11 @@ for tab, group in zip(tabs[:-1], group_names):
                 for mid, (w, hs_val, as_val) in batch.items():
                     upsert_bet(user["id"], mid, w, hs_val, as_val)
                 derive_and_save_group_prediction(user["id"], group)
-                get_user_bets.clear()
-                get_user_group_preds.clear()
             standings = _compute_standings(batch, matches)
-            st.success(f"✅ Group {group} saved!")
-            _show_standings(standings)
+            st.session_state._needs_fresh_data = True
+            st.session_state._last_saved_group = group
+            st.session_state._last_saved_standings = standings
+            st.rerun()
 
 # ── Knockout tab ───────────────────────────────────────────────────────────────
 with tabs[-1]:
