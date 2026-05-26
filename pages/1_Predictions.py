@@ -1,4 +1,6 @@
 import streamlit as st
+from datetime import datetime, timezone, timedelta
+from ui import inject_fonts, restore_session
 from db import (
     get_teams_by_group,
     get_group_matches,
@@ -15,6 +17,8 @@ from db import (
 st.set_page_config(
     page_title="Predictions — World Cup 2026", page_icon="⚽", layout="wide"
 )
+inject_fonts()
+restore_session()
 
 # ── Auth guard ─────────────────────────────────────────────────────────────────
 if "user" not in st.session_state or st.session_state.user is None:
@@ -28,6 +32,36 @@ locked = is_locked()
 st.title("⚽ My Predictions")
 if locked:
     st.warning("🔒 Predictions are locked. The tournament has started.")
+
+# ── Mobile-friendly number input styling ───────────────────────────────────────
+st.markdown(
+    """
+    <style>
+    div[data-testid="stNumberInput"] input {
+        text-align: center !important;
+        font-size: 1.3rem !important;
+        font-weight: bold !important;
+        padding: 6px 2px !important;
+    }
+    div[data-testid="stNumberInput"] button {
+        width: 2.2rem !important;
+        height: 2.2rem !important;
+        font-size: 1.1rem !important;
+    }
+    @media (max-width: 640px) {
+        div[data-testid="stNumberInput"] input {
+            font-size: 1.5rem !important;
+        }
+        div[data-testid="stNumberInput"] button {
+            width: 2.8rem !important;
+            height: 2.8rem !important;
+            font-size: 1.4rem !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 with st.expander("🏆 Scoring system", expanded=False):
     st.markdown("""
@@ -52,6 +86,9 @@ if st.session_state.pop("_needs_fresh_data", False):
     get_user_bets.clear()
     get_user_group_preds.clear()
     get_user_knockout_preds.clear()
+
+if st.session_state.pop("_celebrate_groups_done", False):
+    st.balloons()
 
 teams_by_group = get_teams_by_group()
 matches_by_group = get_group_matches()
@@ -120,6 +157,24 @@ def _show_standings(standings: list[dict]) -> None:
     st.markdown(table, unsafe_allow_html=True)
 
 
+def _humanize_date(date_str: str) -> str:
+    """Friendly label: '⚡ Today · 19:00 UTC', 'Sat Jun 14 · 20:00 UTC', etc."""
+    try:
+        dt = datetime.fromisoformat(date_str.replace(" ", "T"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        today = datetime.now(timezone.utc).date()
+        match_day = dt.date()
+        t = dt.strftime("%H:%M UTC")
+        if match_day == today:
+            return f"⚡ Today · {t}"
+        elif match_day == today + timedelta(days=1):
+            return f"Tomorrow · {t}"
+        else:
+            return f"{dt.strftime('%a %b %d')} · {t}"
+    except Exception:
+        return f"{date_str[:10]} {date_str[11:16]} UTC"
+
 
 # ── Progress summary ──────────────────────────────────────────────────────────
 done_groups = [g for g in group_names if g in saved_group_preds]
@@ -137,7 +192,7 @@ with pc1:
     grp_delta = "\u2705 Complete!" if n_groups_done == 12 else f"{12 - n_groups_done} group(s) remaining"
     st.metric("\u26bd Group Predictions", f"{n_groups_done} / 12", grp_delta)
 with pc2:
-    st.metric("\U0001f3af Knockout Picks", f"{n_ko_done} / 31")
+    st.metric("\U0001f3af Knockout Picks", f"{n_ko_done} / 32")
 with pc3:
     st.metric("\U0001f3c6 Predicted Champion", champion or "\u2014 not yet picked")
 
@@ -256,7 +311,7 @@ with tab_groups:
             st.markdown(
                 f'<div style="text-align:center;margin:2px 0">{result_html}</div>'
                 f'<div style="text-align:center;color:#888;font-size:0.75rem">'
-                f'{date_str[:10]} {date_str[11:16]} UTC</div>',
+                f'{_humanize_date(date_str)}</div>',
                 unsafe_allow_html=True,
             )
             st.divider()
@@ -267,6 +322,7 @@ with tab_groups:
         )
 
     if submitted and not locked:
+        _is_new = group not in saved_group_preds
         with st.spinner(f"Saving Group {group}..."):
             for mid, (w, hs_val, as_val) in batch.items():
                 upsert_bet(user["id"], mid, w, hs_val, as_val)
@@ -276,6 +332,12 @@ with tab_groups:
         st.session_state._needs_fresh_data = True
         st.session_state._last_saved_group = group
         st.session_state._last_saved_standings = standings
+        # 🎉 Celebrate completing all 12 groups for the first time
+        if _is_new and len(done_groups) + 1 == len(group_names):
+            st.session_state["_celebrate_groups_done"] = True
+        # Auto-advance to the next group
+        if group_idx < len(group_names) - 1:
+            st.session_state.active_group = group_names[group_idx + 1]
         st.rerun()
 
     # ── Prev / Next navigation ─────────────────────────────────────────────────
@@ -294,12 +356,19 @@ with tab_groups:
                 st.rerun()
         else:
             st.caption("All groups done! Open the \U0001f3af Knockout tab.")
+            st.page_link("pages/2_My_Summary.py", label="📋 Review your prediction slip →")
 
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 # KNOCKOUT TAB
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 with tab_ko:
     all_done = len(done_groups) == len(group_names)
+    if not all_done and not locked:
+        remaining = len(group_names) - len(done_groups)
+        st.info(
+            f"⚽ Complete your **{remaining} remaining group prediction(s)** first — "
+            "your bracket will populate automatically with the teams you predicted to advance."
+        )
     if done_groups:
         with st.expander(
             f"\U0001f4ca Group Stage Summary ({len(done_groups)}/{len(group_names)} groups)",

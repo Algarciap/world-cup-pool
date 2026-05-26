@@ -1,8 +1,10 @@
 import os
 import streamlit as st
-from db import get_all_matches, update_match_result, calculate_group_points, calculate_knockout_points, flag_img
+from ui import inject_fonts
+from db import get_all_matches, update_match_result, calculate_group_points, calculate_knockout_points, flag_img, sync_results_from_espn, get_group_matches
 
 st.set_page_config(page_title="Admin — World Cup 2026", page_icon="🔧", layout="wide")
+inject_fonts()
 
 st.title("🔧 Admin Panel")
 
@@ -26,13 +28,31 @@ if not st.session_state.admin_ok:
 
 st.success("✅ Admin session active.")
 
+# ── Sync from ESPN ────────────────────────────────────────────────────────────
+st.subheader("🔄 Auto-sync from ESPN")
+st.caption("Fetches completed match scores directly from ESPN and updates the database.")
+if st.button("🔄 Sync results now", type="primary"):
+    with st.spinner("Fetching results from ESPN…"):
+        sync_result = sync_results_from_espn()
+    if sync_result["synced"] > 0:
+        st.success(f"✅ Synced {sync_result['synced']} new result(s).")
+        get_group_matches.clear()
+    elif not sync_result["errors"]:
+        st.info(f"No new results found ({sync_result['skipped']} upcoming match(es) checked).")
+    for err in sync_result["errors"]:
+        st.warning(err)
+    if sync_result["synced"] > 0:
+        st.rerun()
+
+st.markdown("---")
+
 # ── Match data ─────────────────────────────────────────────────────────────────
 all_matches = get_all_matches()
 upcoming = [m for m in all_matches if m["status"] == "upcoming"]
 finished  = [m for m in all_matches if m["status"] == "finished"]
 
-# ── Enter results ──────────────────────────────────────────────────────────────
-st.subheader(f"Upcoming matches ({len(upcoming)})")
+# ── Enter results manually ─────────────────────────────────────────────────────
+st.subheader(f"Upcoming matches ({len(upcoming)}) — manual entry")
 
 if not upcoming:
     st.info("No pending matches.")

@@ -215,19 +215,36 @@ CREATE POLICY "Public read knockout points"
 -- ============================================================
 
 -- Leaderboard: total points per user across all prediction tables
+-- Uses pre-aggregated subqueries to avoid the cartesian product that would
+-- arise from joining three one-to-many tables directly on user_id.
 CREATE VIEW leaderboard AS
+WITH
+  bet_pts AS (
+      SELECT user_id, COALESCE(SUM(points_earned), 0) AS total
+      FROM bets
+      GROUP BY user_id
+  ),
+  group_pts AS (
+      SELECT user_id, COALESCE(SUM(points_earned), 0) AS total
+      FROM group_predictions
+      GROUP BY user_id
+  ),
+  ko_pts AS (
+      SELECT user_id, COALESCE(SUM(points_earned), 0) AS total
+      FROM knockout_predictions
+      GROUP BY user_id
+  )
 SELECT
     u.id,
     u.name,
-    COALESCE(SUM(b.points_earned),  0)  AS group_stage_points,
-    COALESCE(SUM(gp.points_earned), 0)  AS group_prediction_points,
-    COALESCE(SUM(kp.points_earned), 0)  AS knockout_points,
-    COALESCE(SUM(b.points_earned),  0)
-        + COALESCE(SUM(gp.points_earned), 0)
-        + COALESCE(SUM(kp.points_earned), 0) AS total_points
+    COALESCE(b.total,  0) AS group_stage_points,
+    COALESCE(gp.total, 0) AS group_prediction_points,
+    COALESCE(kp.total, 0) AS knockout_points,
+    COALESCE(b.total,  0)
+        + COALESCE(gp.total, 0)
+        + COALESCE(kp.total, 0) AS total_points
 FROM users u
-LEFT JOIN bets b                 ON b.user_id  = u.id
-LEFT JOIN group_predictions gp   ON gp.user_id = u.id
-LEFT JOIN knockout_predictions kp ON kp.user_id = u.id
-GROUP BY u.id, u.name
+LEFT JOIN bet_pts  b  ON b.user_id  = u.id
+LEFT JOIN group_pts gp ON gp.user_id = u.id
+LEFT JOIN ko_pts   kp  ON kp.user_id = u.id
 ORDER BY total_points DESC;

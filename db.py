@@ -117,6 +117,27 @@ def get_or_create_user(name: str, email: str) -> dict:
     return result.data[0]
 
 
+def get_user_by_email(email: str) -> dict | None:
+    """Look up a user by email without creating one. Returns None if not found."""
+    db = _client()
+    result = db.table("users").select("*").eq("email", email.strip().lower()).execute()
+    return result.data[0] if result.data else None
+
+
+def get_completion_stats() -> dict:
+    """Returns {'total': N, 'completed': M} — users who have all 12 group predictions."""
+    from collections import Counter
+    db = _client()
+    users_res = db.table("users").select("id").execute()
+    total = len(users_res.data)
+    if total == 0:
+        return {"total": 0, "completed": 0}
+    gp_res = db.table("group_predictions").select("user_id").execute()
+    counts = Counter(row["user_id"] for row in gp_res.data)
+    completed = sum(1 for c in counts.values() if c >= 12)
+    return {"total": total, "completed": completed}
+
+
 def get_all_users() -> list[dict]:
     db = _client()
     return db.table("users").select("*").order("name").execute().data
@@ -144,7 +165,7 @@ def get_teams_by_group() -> dict[str, list[str]]:
 
 # ── Matches ────────────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_group_matches() -> dict[str, list[dict]]:
     """Returns group-stage matches keyed by group_name, ordered by date."""
     db = _client()
@@ -468,3 +489,117 @@ def calculate_knockout_points(slot: str, actual_winner: str) -> None:
     for pred in preds:
         p = pts_for_correct if pred["predicted_winner"] == actual_winner else 0
         db.table("knockout_predictions").update({"points_earned": p}).eq("id", pred["id"]).execute()
+
+
+# ── ESPN result sync ───────────────────────────────────────────────────────────
+
+# Maps ESPN display names → team names used in this app's DB.
+_ESPN_NAME_ALIASES: dict[str, str] = {
+    "Bosnia-Herzegovina": "Bosnia and Herzegovina",
+    "Côte d'Ivoire": "Ivory Coast",
+    "Cote d'Ivoire": "Ivory Coast",
+    "Democratic Republic of Congo": "DR Congo",
+    "Congo DR": "DR Congo",
+    "Cape Verde Islands": "Cape Verde",
+    "USA": "United States",
+    "Curacao": "Curaçao",
+    "Korea Republic": "South Korea",
+    # Confirmed from live ESPN WC 2026 schedule sweep
+    "Czechia": "Czech Republic",
+    "Türkiye": "Turkey",
+}
+
+
+def _normalize_espn_name(name: str) -> str:
+    return _ESPN_NAME_ALIASES.get(name, name)
+
+
+def sync_results_from_espn() -> dict:
+    """Fetches completed match results from ESPN and writes them to the DB.
+
+    Only processes matches currently marked 'upcoming' in the DB.
+    Returns {"synced": N, "skipped": M, "errors": [...]}.
+    """
+    import requests
+
+    db = _client()
+
+    # Only look at matches we haven't marked finished yet
+    upcoming = (
+        db.table("matches")
+        .select("*")
+        .eq("status", "upcoming")
+        .execute()
+        .data
+    )
+    if not upcoming:
+        return {"synced": 0, "skipped": 0, "errors": []}
+
+    # Collect the unique calendar dates (YYYYMMDD) across all upcoming matches
+    date_strs = {m["match_date"][:10].replace("-", "") for m in upcoming}
+
+    # Build a lookup of ESPN-confirmed finished results keyed by (home, away)
+    espn_results: dict[tuple[str, str], tuple[int, int]] = {}
+    errors: list[str] = []
+
+    for date_str in sorted(date_strs):
+        url = (
+            "https://site.api.espn.com/apis/site/v2/sports/soccer"
+            f"/fifa.world/scoreboard?dates={date_str}&limit=50"
+        )
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            errors.append(f"ESPN fetch failed for {date_str}: {exc}")
+            continue
+
+        for event in data.get("events", []):
+            competition = event.get("competitions", [{}])[0]
+            if not competition.get("status", {}).get("type", {}).get("completed"):
+                continue
+            competitors = competition.get("competitors", [])
+            home_c = next((c for c in competitors if c.get("homeAway") == "home"), None)
+            away_c = next((c for c in competitors if c.get("homeAway") == "away"), None)
+            if not home_c or not away_c:
+                continue
+            home_name = _normalize_espn_name(home_c["team"]["displayName"])
+            away_name = _normalize_espn_name(away_c["team"]["displayName"])
+            try:
+                hs = int(home_c.get("score", 0))
+                as_ = int(away_c.get("score", 0))
+            except (ValueError, TypeError):
+                continue
+            espn_results[(home_name, away_name)] = (hs, as_)
+
+    # Apply results to the DB
+    synced = 0
+    skipped = 0
+    groups_updated: set[str] = set()
+    ko_slots_updated: list[tuple[str, str]] = []
+
+    for match in upcoming:
+        key = (match["home_team"], match["away_team"])
+        if key not in espn_results:
+            skipped += 1
+            continue
+        hs, as_ = espn_results[key]
+        try:
+            update_match_result(match["id"], hs, as_)
+            if match.get("group_name"):
+                groups_updated.add(match["group_name"])
+            if match.get("slot"):
+                winner = match["home_team"] if hs > as_ else match["away_team"]
+                ko_slots_updated.append((match["slot"], winner))
+            synced += 1
+        except Exception as exc:
+            errors.append(f"{match['home_team']} vs {match['away_team']}: {exc}")
+
+    # Recalculate group / knockout prediction points after all results are in
+    for group in groups_updated:
+        calculate_group_points(group)
+    for slot, winner in ko_slots_updated:
+        calculate_knockout_points(slot, winner)
+
+    return {"synced": synced, "skipped": skipped, "errors": errors}
