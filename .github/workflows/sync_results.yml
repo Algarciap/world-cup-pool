@@ -1,10 +1,17 @@
 name: Sync World Cup Results
 
 on:
-  # Runs every 2 hours throughout the day to pick up match results promptly.
-  # World Cup 2026: June 11 – July 19.  Adjust or disable after the tournament.
+  # Runs ~30 min after each WC 2026 match window closes.
+  # All times in UTC (Madrid CEST = UTC+2 during the tournament).
+  #   18:30 UTC = 20:30 Madrid  — after the 16:00 UTC kickoffs
+  #   21:30 UTC = 23:30 Madrid  — after the 19:00 UTC kickoffs
+  #   00:30 UTC = 02:30 Madrid  — after the 22:00 UTC kickoffs
+  #   03:30 UTC = 05:30 Madrid  — after the 01:00 UTC kickoffs
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "30 18 * * *"
+    - cron: "30 21 * * *"
+    - cron: "30 0  * * *"
+    - cron: "30 3  * * *"
 
   # Allows triggering a manual run from the GitHub Actions UI at any time.
   workflow_dispatch:
