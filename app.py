@@ -44,6 +44,8 @@ if st.session_state.user is None:
             st.error("Please fill in your name and email.")
         elif "@" not in email or "." not in email.split("@")[-1]:
             st.error("That email doesn't look valid.")
+        elif not email.endswith("@kingmakers.com"):
+            st.error("This pool is only open to Kingmakers staff. Please use your @kingmakers.com email.")
         else:
             with st.spinner("Looking up your account…"):
                 user = get_or_create_user(name, email)
