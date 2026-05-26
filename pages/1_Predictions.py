@@ -404,11 +404,21 @@ with tab_ko:
     all_teams = sorted(t for teams in teams_by_group.values() for t in teams)
     team_options = ["— Select team —"] + all_teams
 
-    def _best_third(group_pool: list[str]) -> str | None:
-        """Find the best predicted 3rd-place team from the given group pool
-        based on the user's own predicted match scores."""
-        candidates = []
-        for g in group_pool:
+    def _compute_third_assignment() -> dict[str, str]:
+        """Rank all predicted 3rd-place teams and assign each to exactly one R32
+        slot (greedy, best team first). Returns {slot: team_name}."""
+        THIRD_SLOTS: dict[str, list[str]] = {
+            "R32_1":  list("ABCDF"),
+            "R32_2":  list("CDFGH"),
+            "R32_7":  list("CEFHI"),
+            "R32_8":  list("EHIJK"),
+            "R32_11": list("BEFIJ"),
+            "R32_12": list("AEHIJ"),
+            "R32_15": list("EFGIJ"),
+            "R32_16": list("DEIJL"),
+        }
+        candidates: list[tuple[str, str, int, int, int]] = []
+        for g in "ABCDEFGHIJKL":
             third = saved_group_preds.get(g, {}).get("third_place")
             if not third:
                 continue
@@ -435,11 +445,17 @@ with tab_ko:
                         pts += 3
                     elif w == "draw":
                         pts += 1
-            candidates.append((third, pts, gd, gf))
-        if not candidates:
-            return None
-        candidates.sort(key=lambda x: (x[1], x[2], x[3]), reverse=True)
-        return candidates[0][0]
+            candidates.append((third, g, pts, gd, gf))
+        candidates.sort(key=lambda x: (x[2], x[3], x[4]), reverse=True)
+        assignment: dict[str, str] = {}
+        used_slots: set[str] = set()
+        for team, group, *_ in candidates[:8]:
+            for slot, pool in THIRD_SLOTS.items():
+                if slot not in used_slots and group in pool:
+                    assignment[slot] = team
+                    used_slots.add(slot)
+                    break
+        return assignment
 
     # Official FIFA 2026 R32 slot → group position sources
     R32_SOURCES: dict[str, tuple[str, str]] = {
@@ -460,6 +476,8 @@ with tab_ko:
         "R32_15": ("1B",  "3EFGIJ"),   # M85
         "R32_16": ("1K",  "3DEIJL"),   # M87
     }
+
+    third_place_assignment = _compute_third_assignment()
 
     # Which two slots feed into each higher-round slot (official bracket)
     BRACKET_FEEDERS: dict[str, tuple[str, str]] = {
@@ -490,16 +508,17 @@ with tab_ko:
         "FINAL": "Final", "THIRD_PLACE": "3rd Place Match",
     }
 
-    def _resolve_pos(pos: str) -> str:
+    def _resolve_pos(pos: str, slot: str = "") -> str:
         """Convert '1E'/'2B'/'3ABCDF' to a team name or readable placeholder."""
         if len(pos) == 2 and pos[0] == "1":
             return saved_group_preds.get(pos[1], {}).get("first_place") or f"1st Group {pos[1]}"
         elif len(pos) == 2 and pos[0] == "2":
             return saved_group_preds.get(pos[1], {}).get("second_place") or f"2nd Group {pos[1]}"
         elif pos[0] == "3":
+            if slot and slot in third_place_assignment:
+                return third_place_assignment[slot]
             group_pool = list(pos[1:])
-            best = _best_third(group_pool)
-            return best if best else f"Best 3rd ({'/' .join(group_pool)})"
+            return f"Best 3rd ({'/' .join(group_pool)})"
         return pos
 
     def _team_idx(val: str | None, opts: list[str]) -> int:
@@ -509,8 +528,8 @@ with tab_ko:
         """Returns the two real team names for a slot if both are determinable, else (None, None)."""
         if slot in R32_SOURCES:
             pos_a, pos_b = R32_SOURCES[slot]
-            ta = _resolve_pos(pos_a)
-            tb = _resolve_pos(pos_b)
+            ta = _resolve_pos(pos_a, slot)
+            tb = _resolve_pos(pos_b, slot)
             return (ta if ta in all_teams else None), (tb if tb in all_teams else None)
         feeders = BRACKET_FEEDERS.get(slot)
         if not feeders:
@@ -525,7 +544,7 @@ with tab_ko:
         # R32: derive from group stage predictions
         if slot in R32_SOURCES:
             pos_a, pos_b = R32_SOURCES[slot]
-            ta, tb = _resolve_pos(pos_a), _resolve_pos(pos_b)
+            ta, tb = _resolve_pos(pos_a, slot), _resolve_pos(pos_b, slot)
             return f"{flag_img(ta)}<b>{ta}</b>&nbsp;&nbsp;vs&nbsp;&nbsp;{flag_img(tb)}<b>{tb}</b>"
         # R16+: cascade from saved knockout picks
         feeders = BRACKET_FEEDERS.get(slot)
