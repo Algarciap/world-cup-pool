@@ -29,25 +29,26 @@ _OFFICE_FLAG: dict[str, str] = {
 }
 
 office_summary = get_office_summary(leaderboard)
-if office_summary:
-    st.markdown("### 🌍 Office Standings")
-    st.caption("At-a-glance: which office is leading the pool right now")
-    summary_cols = st.columns(len(office_summary))
-    for col, row in zip(summary_cols, office_summary):
-        flag = _OFFICE_FLAG.get(row["office"], "")
-        with col:
-            st.markdown(
-                f"""<div style="background:#1e1e2e;border-radius:10px;padding:14px 12px;text-align:center;border:1px solid #333">
-                  <div style="font-size:1.8rem;margin-bottom:2px">{flag}</div>
-                  <div style="font-size:1.0rem;font-weight:bold;color:#fff;margin-bottom:4px">{row['office']}</div>
-                  <div style="font-size:1.6rem;font-weight:bold;color:#FFD700">{row['avg_score']}</div>
-                  <div style="font-size:0.7rem;color:#888;margin-bottom:6px">avg pts</div>
-                  <div style="font-size:0.75rem;color:#aaa">👤 {row['participants']} players</div>
-                  <div style="font-size:0.75rem;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🏅 {row['top_scorer']}</div>
-                </div>""",
-                unsafe_allow_html=True,
-            )
-    st.markdown("---")
+st.markdown("### 🌍 Office Standings")
+st.caption("At-a-glance: which office is leading the pool right now")
+summary_cols = st.columns(len(office_summary))
+for col, row in zip(summary_cols, office_summary):
+    flag = _OFFICE_FLAG.get(row["office"], "")
+    empty = row["participants"] == 0
+    opacity = "0.45" if empty else "1"
+    with col:
+        st.markdown(
+            f"""<div style="background:#1e1e2e;border-radius:10px;padding:14px 12px;text-align:center;border:1px solid #333;opacity:{opacity}">
+              <div style="font-size:1.8rem;margin-bottom:2px">{flag}</div>
+              <div style="font-size:1.0rem;font-weight:bold;color:#fff;margin-bottom:4px">{row['office']}</div>
+              <div style="font-size:1.6rem;font-weight:bold;color:#FFD700">{row['avg_score']}</div>
+              <div style="font-size:0.7rem;color:#888;margin-bottom:6px">avg pts</div>
+              <div style="font-size:0.75rem;color:#aaa">👤 {row['participants']} players</div>
+              <div style="font-size:0.75rem;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🏅 {row['top_scorer']}</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+st.markdown("---")
 
 if not leaderboard:
     st.info("No scores yet — the tournament hasn't started!")

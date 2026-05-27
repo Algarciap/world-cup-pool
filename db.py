@@ -373,30 +373,34 @@ def get_leaderboard() -> list[dict]:
 
 
 def get_office_summary(leaderboard_rows: list[dict]) -> list[dict]:
-    """Returns per-office stats derived from already-fetched leaderboard rows.
+    """Returns per-office stats for all 6 offices, even those with 0 participants.
 
     Each entry: {office, participants, avg_score, top_scorer, top_score}
     """
-    if not leaderboard_rows:
-        return []
     from collections import defaultdict
     buckets: dict[str, list] = defaultdict(list)
     for r in leaderboard_rows:
-        o = r.get("office") or "Unknown"
-        buckets[o].append(r)
+        o = r.get("office")
+        if o in OFFICES:
+            buckets[o].append(r)
     summary = []
-    for o in OFFICES + (["Unknown"] if "Unknown" in buckets else []):
-        members = buckets.get(o)
-        if not members:
-            continue
-        avg_score = sum(m["total_points"] for m in members) / len(members)
-        top = max(members, key=lambda m: m["total_points"])
+    for o in OFFICES:
+        members = buckets.get(o, [])
+        if members:
+            avg_score = round(sum(m["total_points"] for m in members) / len(members), 1)
+            top = max(members, key=lambda m: m["total_points"])
+            top_scorer = top["name"]
+            top_score = top["total_points"]
+        else:
+            avg_score = 0.0
+            top_scorer = "—"
+            top_score = 0
         summary.append({
             "office": o,
             "participants": len(members),
-            "avg_score": round(avg_score, 1),
-            "top_scorer": top["name"],
-            "top_score": top["total_points"],
+            "avg_score": avg_score,
+            "top_scorer": top_scorer,
+            "top_score": top_score,
         })
     return summary
 
