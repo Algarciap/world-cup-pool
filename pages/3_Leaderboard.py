@@ -19,13 +19,14 @@ st.markdown(
 leaderboard = get_leaderboard()
 
 # ── Office competition summary ─────────────────────────────────────────────────
-_OFFICE_FLAG: dict[str, str] = {
-    "Spain":        "🇪🇸",
-    "Malta":        "🇲🇹",
-    "South Africa": "🇿🇦",
-    "Nigeria":      "🇳🇬",
-    "Zambia":       "🇿🇲",
-    "UK":           "🇬🇧",
+# Uses flagcdn.com images — same CDN already used for team flags in this app
+_OFFICE_FLAG_URL: dict[str, str] = {
+    "Spain":        "https://flagcdn.com/h40/es.png",
+    "Malta":        "https://flagcdn.com/h40/mt.png",
+    "South Africa": "https://flagcdn.com/h40/za.png",
+    "Nigeria":      "https://flagcdn.com/h40/ng.png",
+    "Zambia":       "https://flagcdn.com/h40/zm.png",
+    "UK":           "https://flagcdn.com/h40/gb.png",
 }
 
 office_summary = get_office_summary(leaderboard)
@@ -33,13 +34,14 @@ st.markdown("### 🌍 Office Standings")
 st.caption("At-a-glance: which office is leading the pool right now")
 summary_cols = st.columns(len(office_summary))
 for col, row in zip(summary_cols, office_summary):
-    flag = _OFFICE_FLAG.get(row["office"], "")
+    flag_url = _OFFICE_FLAG_URL.get(row["office"], "")
+    flag_html = f'<img src="{flag_url}" height="36" style="border-radius:3px;margin-bottom:6px">'
     empty = row["participants"] == 0
     opacity = "0.45" if empty else "1"
     with col:
         st.markdown(
             f"""<div style="background:#1e1e2e;border-radius:10px;padding:14px 12px;text-align:center;border:1px solid #333;opacity:{opacity}">
-              <div style="font-size:1.8rem;margin-bottom:2px">{flag}</div>
+              {flag_html}
               <div style="font-size:1.0rem;font-weight:bold;color:#fff;margin-bottom:4px">{row['office']}</div>
               <div style="font-size:1.6rem;font-weight:bold;color:#FFD700">{row['avg_score']}</div>
               <div style="font-size:0.7rem;color:#888;margin-bottom:6px">avg pts</div>
@@ -79,12 +81,12 @@ else:
 
     # Office badge map: flag + full name for tabs and inline display
     _OFFICE_BADGE: dict[str, str] = {
-        "Spain":        "🇪🇸 Spain",
-        "Malta":        "🇲🇹 Malta",
-        "South Africa": "🇿🇦 South Africa",
-        "Nigeria":      "🇳🇬 Nigeria",
-        "Zambia":       "🇿🇲 Zambia",
-        "UK":           "🇬🇧 UK",
+        "Spain":        "Spain",
+        "Malta":        "Malta",
+        "South Africa": "South Africa",
+        "Nigeria":      "Nigeria",
+        "Zambia":       "Zambia",
+        "UK":           "UK",
     }
 
     def _build_df(rows: list[dict], show_office: bool = False) -> pd.DataFrame:
