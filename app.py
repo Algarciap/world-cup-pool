@@ -12,7 +12,7 @@ st.set_page_config(
 inject_fonts()
 
 # ── Maintenance mode ───────────────────────────────────────────────────────────
-MAINTENANCE = False
+MAINTENANCE = True
 if MAINTENANCE:
     st.title("⚽ World Cup 2026 — Prediction Pool")
     st.info("🔧 We're making some improvements. Check back soon!")
