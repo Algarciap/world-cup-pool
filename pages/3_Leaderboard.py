@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timezone
 from ui import inject_fonts, restore_session
-from db import get_leaderboard, get_all_users_predictions, is_locked, flag_img
+from db import get_leaderboard, get_office_summary, get_all_users_predictions, is_locked, flag_img, OFFICES
 
 st.set_page_config(page_title="Leaderboard — World Cup 2026", page_icon="📊", layout="wide")
 inject_fonts()
@@ -18,28 +18,36 @@ st.markdown(
 
 leaderboard = get_leaderboard()
 
+# ── Office competition summary ─────────────────────────────────────────────────
+office_summary = get_office_summary(leaderboard)
+if office_summary:
+    st.markdown("### 🌍 Office Standings")
+    st.caption("At-a-glance: which office is leading the pool right now")
+    summary_cols = st.columns(len(office_summary))
+    for col, row in zip(summary_cols, office_summary):
+        with col:
+            st.markdown(
+                f"""<div style="background:#1e1e2e;border-radius:10px;padding:14px 12px;text-align:center;border:1px solid #333">
+                  <div style="font-size:1.1rem;font-weight:bold;color:#fff;margin-bottom:4px">{row['office']}</div>
+                  <div style="font-size:1.6rem;font-weight:bold;color:#FFD700">{row['avg_score']}</div>
+                  <div style="font-size:0.7rem;color:#888;margin-bottom:6px">avg pts</div>
+                  <div style="font-size:0.75rem;color:#aaa">👤 {row['participants']} players</div>
+                  <div style="font-size:0.75rem;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🏅 {row['top_scorer']}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+    st.markdown("---")
+
 if not leaderboard:
     st.info("No scores yet — the tournament hasn't started!")
 else:
-    df = pd.DataFrame(leaderboard)
-    df = df.rename(columns={
-        "name":                    "Name",
-        "total_points":            "Total",
-        "group_stage_points":      "Matches",
-        "group_prediction_points": "Group bonus",
-        "knockout_points":         "Knockout",
-    })
+    current_user = st.session_state.get("user")
+    current_user_name = current_user["name"] if current_user else None
 
-    # ── Rank-movement snapshot ───────────────────────────────────────────────────
+    # ── Rank-movement snapshot ─────────────────────────────────────────────────
     if "_lb_snapshot" not in st.session_state:
         st.session_state["_lb_snapshot"] = {r["name"]: i + 1 for i, r in enumerate(leaderboard)}
     prev_ranks = st.session_state["_lb_snapshot"]
-
-    # Keep only the columns we want to display, in order
-    display_cols = [c for c in ["Name", "Total", "Matches", "Group bonus", "Knockout"] if c in df.columns]
-    df = df[display_cols].sort_values("Total", ascending=False).reset_index(drop=True)
-    df.index = df.index + 1
-    df.index.name = "Pos."
 
     def _rank_delta(name: str, pos: int) -> str:
         prev = prev_ranks.get(name)
@@ -52,18 +60,61 @@ else:
             return f"▼{abs(d)}"
         return "—"
 
-    df.insert(1, "Δ", [_rank_delta(row["Name"], idx) for idx, row in df.iterrows()])
-
-    current_user = st.session_state.get("user")
-    current_user_name = current_user["name"] if current_user else None
-
     def _highlight_me(row):
         if current_user_name and row["Name"] == current_user_name:
             return ["background-color: rgba(255, 215, 0, 0.3); font-weight: bold"] * len(row)
         return [""] * len(row)
 
-    st.caption("Δ = rank change since your last refresh · Your row is highlighted in gold")
-    st.dataframe(df.style.apply(_highlight_me, axis=1), use_container_width=True)
+    # Office badge map: short labels for inline display
+    _OFFICE_BADGE: dict[str, str] = {
+        "Spain":        "🇪🇸 Spain",
+        "Malta":        "🇲🇹 Malta",
+        "South Africa": "🇿🇦 S.Africa",
+        "Nigeria":      "🇳🇬 Nigeria",
+        "Zambia":       "🇿🇲 Zambia",
+        "UK":           "🇬🇧 UK",
+    }
+
+    def _build_df(rows: list[dict], show_office: bool = False) -> pd.DataFrame:
+        """Build a display DataFrame from leaderboard rows."""
+        df = pd.DataFrame(rows)
+        df = df.rename(columns={
+            "name":                    "Name",
+            "total_points":            "Total",
+            "group_stage_points":      "Matches",
+            "group_prediction_points": "Group bonus",
+            "knockout_points":         "Knockout",
+            "office":                  "Office",
+        })
+        if show_office and "Office" in df.columns:
+            df["Office"] = df["Office"].apply(lambda o: _OFFICE_BADGE.get(o, o or "—"))
+            display_cols = [c for c in ["Name", "Office", "Total", "Matches", "Group bonus", "Knockout"] if c in df.columns]
+        else:
+            display_cols = [c for c in ["Name", "Total", "Matches", "Group bonus", "Knockout"] if c in df.columns]
+        df = df[display_cols].sort_values("Total", ascending=False).reset_index(drop=True)
+        df.index = df.index + 1
+        df.index.name = "Pos."
+        df.insert(1, "Δ", [_rank_delta(row["Name"], idx) for idx, row in df.iterrows()])
+        return df
+
+    # ── Tabs: All offices + one per office ────────────────────────────────────
+    tab_labels = ["🌍 All offices"] + [f"{_OFFICE_BADGE.get(o, o)}" for o in OFFICES]
+    tabs = st.tabs(tab_labels)
+
+    with tabs[0]:
+        st.caption("Δ = rank change since your last refresh · Your row is highlighted in gold")
+        df_all = _build_df(leaderboard, show_office=True)
+        st.dataframe(df_all.style.apply(_highlight_me, axis=1), use_container_width=True)
+
+    for i, office in enumerate(OFFICES):
+        with tabs[i + 1]:
+            office_rows = [r for r in leaderboard if r.get("office") == office]
+            if not office_rows:
+                st.info(f"No participants from {office} yet.")
+            else:
+                df_office = _build_df(office_rows, show_office=False)
+                st.caption("Δ = rank change since your last refresh · Your row is highlighted in gold")
+                st.dataframe(df_office.style.apply(_highlight_me, axis=1), use_container_width=True)
 
     # ── Visual podium ───────────────────────────────────────────────────────────
     st.markdown("---")

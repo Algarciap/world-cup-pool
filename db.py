@@ -89,6 +89,10 @@ def flag_img(team: str, height: int = 20) -> str:
     )
 
 
+# Valid office values
+OFFICES: list[str] = ["Spain", "Malta", "South Africa", "Nigeria", "Zambia", "UK"]
+
+
 def is_locked() -> bool:
     return datetime.now(timezone.utc) >= LOCK_DT
 
@@ -106,15 +110,32 @@ def _client() -> Client:
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
-def get_or_create_user(name: str, email: str) -> dict:
-    """Returns the existing user row or creates a new one."""
+def get_or_create_user(name: str, email: str, office: str | None = None) -> dict:
+    """Returns the existing user row or creates a new one.
+
+    If the user already exists but has no office set, and an office is supplied,
+    the office is saved to the DB and returned in the result dict.
+    """
     db = _client()
     email = email.strip().lower()
     result = db.table("users").select("*").eq("email", email).execute()
     if result.data:
-        return result.data[0]
-    result = db.table("users").insert({"name": name.strip(), "email": email}).execute()
+        user = result.data[0]
+        if office and not user.get("office"):
+            db.table("users").update({"office": office}).eq("id", user["id"]).execute()
+            user["office"] = office
+        return user
+    payload: dict = {"name": name.strip(), "email": email}
+    if office:
+        payload["office"] = office
+    result = db.table("users").insert(payload).execute()
     return result.data[0]
+
+
+def update_user_office(user_id: str, office: str) -> None:
+    """Update the office field for an existing user."""
+    db = _client()
+    db.table("users").update({"office": office}).eq("id", user_id).execute()
 
 
 def get_user_by_email(email: str) -> dict | None:
@@ -349,6 +370,35 @@ def upsert_knockout_pred(user_id: str, slot: str, predicted_winner: str) -> None
 def get_leaderboard() -> list[dict]:
     db = _client()
     return db.table("leaderboard").select("*").execute().data
+
+
+def get_office_summary(leaderboard_rows: list[dict]) -> list[dict]:
+    """Returns per-office stats derived from already-fetched leaderboard rows.
+
+    Each entry: {office, participants, avg_score, top_scorer, top_score}
+    """
+    if not leaderboard_rows:
+        return []
+    from collections import defaultdict
+    buckets: dict[str, list] = defaultdict(list)
+    for r in leaderboard_rows:
+        o = r.get("office") or "Unknown"
+        buckets[o].append(r)
+    summary = []
+    for o in OFFICES + (["Unknown"] if "Unknown" in buckets else []):
+        members = buckets.get(o)
+        if not members:
+            continue
+        avg_score = sum(m["total_points"] for m in members) / len(members)
+        top = max(members, key=lambda m: m["total_points"])
+        summary.append({
+            "office": o,
+            "participants": len(members),
+            "avg_score": round(avg_score, 1),
+            "top_scorer": top["name"],
+            "top_score": top["total_points"],
+        })
+    return summary
 
 
 def get_all_users_predictions() -> dict:

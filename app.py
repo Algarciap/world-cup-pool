@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 from ui import inject_fonts, restore_session
-from db import get_or_create_user, is_locked, get_completion_stats, get_user_group_preds, get_user_knockout_preds, flag_img
+from db import get_or_create_user, is_locked, get_completion_stats, get_user_group_preds, get_user_knockout_preds, flag_img, OFFICES, update_user_office
 
 st.set_page_config(
     page_title="Mundial 2026 Pool",
@@ -12,7 +12,7 @@ st.set_page_config(
 inject_fonts()
 
 # ── Maintenance mode ───────────────────────────────────────────────────────────
-MAINTENANCE = False
+MAINTENANCE = True
 if MAINTENANCE:
     st.title("⚽ World Cup 2026 — Prediction Pool")
     st.info("🔧 We're making some improvements. Check back soon!")
@@ -35,6 +35,11 @@ if st.session_state.user is None:
     with st.form("login"):
         name = st.text_input("Full name")
         email = st.text_input("Email")
+        office = st.selectbox(
+            "Which office are you in?",
+            options=OFFICES,
+            help="Returning? Your office is already saved — this is only used on first sign-up.",
+        )
         submitted = st.form_submit_button("Enter ▶")
 
     if submitted:
@@ -48,7 +53,7 @@ if st.session_state.user is None:
             st.error("This pool is only open to Kingmakers staff. Please use your @kingmakers.com email.")
         else:
             with st.spinner("Looking up your account…"):
-                user = get_or_create_user(name, email)
+                user = get_or_create_user(name, email, office)
             st.session_state.user = user
             st.query_params["u"] = user["email"]
             st.rerun()
@@ -57,6 +62,21 @@ if st.session_state.user is None:
 else:
     user = st.session_state.user
     st.success(f"👋 Welcome, **{user['name']}**!")
+
+    # ── Office picker for existing users who haven't set one yet ──────────────
+    if not user.get("office"):
+        st.info(
+            "👋 One last thing — we've added **office leaderboards**. "
+            "Please tell us which office you're in so we can include you."
+        )
+        with st.form("office_update"):
+            picked_office = st.selectbox("Your office", OFFICES)
+            if st.form_submit_button("Save & continue →"):
+                update_user_office(user["id"], picked_office)
+                st.session_state.user = {**user, "office": picked_office}
+                st.rerun()
+        st.stop()
+    # ─────────────────────────────────────────────────────────────────────────
 
     stats = get_completion_stats()
     done, total = stats["completed"], stats["total"]
