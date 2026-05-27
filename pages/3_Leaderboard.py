@@ -19,16 +19,27 @@ st.markdown(
 leaderboard = get_leaderboard()
 
 # ── Office competition summary ─────────────────────────────────────────────────
+_OFFICE_FLAG: dict[str, str] = {
+    "Spain":        "🇪🇸",
+    "Malta":        "🇲🇹",
+    "South Africa": "🇿🇦",
+    "Nigeria":      "🇳🇬",
+    "Zambia":       "🇿🇲",
+    "UK":           "🇬🇧",
+}
+
 office_summary = get_office_summary(leaderboard)
 if office_summary:
     st.markdown("### 🌍 Office Standings")
     st.caption("At-a-glance: which office is leading the pool right now")
     summary_cols = st.columns(len(office_summary))
     for col, row in zip(summary_cols, office_summary):
+        flag = _OFFICE_FLAG.get(row["office"], "")
         with col:
             st.markdown(
                 f"""<div style="background:#1e1e2e;border-radius:10px;padding:14px 12px;text-align:center;border:1px solid #333">
-                  <div style="font-size:1.1rem;font-weight:bold;color:#fff;margin-bottom:4px">{row['office']}</div>
+                  <div style="font-size:1.8rem;margin-bottom:2px">{flag}</div>
+                  <div style="font-size:1.0rem;font-weight:bold;color:#fff;margin-bottom:4px">{row['office']}</div>
                   <div style="font-size:1.6rem;font-weight:bold;color:#FFD700">{row['avg_score']}</div>
                   <div style="font-size:0.7rem;color:#888;margin-bottom:6px">avg pts</div>
                   <div style="font-size:0.75rem;color:#aaa">👤 {row['participants']} players</div>
@@ -65,11 +76,11 @@ else:
             return ["background-color: rgba(255, 215, 0, 0.3); font-weight: bold"] * len(row)
         return [""] * len(row)
 
-    # Office badge map: short labels for inline display
+    # Office badge map: flag + full name for tabs and inline display
     _OFFICE_BADGE: dict[str, str] = {
         "Spain":        "🇪🇸 Spain",
         "Malta":        "🇲🇹 Malta",
-        "South Africa": "🇿🇦 S.Africa",
+        "South Africa": "🇿🇦 South Africa",
         "Nigeria":      "🇳🇬 Nigeria",
         "Zambia":       "🇿🇲 Zambia",
         "UK":           "🇬🇧 UK",
