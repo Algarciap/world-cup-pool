@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from ui import inject_fonts
-from db import get_all_matches, update_match_result, calculate_group_points, calculate_knockout_points, flag_img, sync_results_from_espn, get_group_matches
+from db import get_all_matches, update_match_result, calculate_group_points, calculate_knockout_points, flag_img, sync_results_from_espn, get_group_matches, get_all_users, update_user_office, OFFICES
 
 st.set_page_config(page_title="Admin — World Cup 2026", page_icon="🔧", layout="wide")
 inject_fonts()
@@ -102,6 +102,35 @@ for match in finished:
         f"({match['match_date'][:10]})",
         unsafe_allow_html=True,
     )
+
+st.markdown("---")
+
+# ── User office assignment ────────────────────────────────────────────────────
+st.subheader("👥 Assign missing offices")
+
+all_users = get_all_users()
+users_no_office = [u for u in all_users if not u.get("office")]
+
+if not users_no_office:
+    st.success("✅ All users have an office assigned.")
+else:
+    st.info(f"{len(users_no_office)} user(s) have no office set.")
+    for u in users_no_office:
+        col_name, col_select, col_btn = st.columns([3, 3, 1])
+        with col_name:
+            st.write(u["name"])
+        with col_select:
+            chosen = st.selectbox(
+                "Office",
+                options=[""] + OFFICES,
+                key=f"office_select_{u['id']}",
+                label_visibility="collapsed",
+            )
+        with col_btn:
+            if st.button("Save", key=f"office_save_{u['id']}", disabled=not chosen):
+                update_user_office(u["id"], chosen)
+                st.success(f"Saved {u['name']} → {chosen}")
+                st.rerun()
 
 st.markdown("---")
 if st.button("Sign out of admin"):
