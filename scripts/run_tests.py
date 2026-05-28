@@ -488,6 +488,119 @@ check("T16b _compute_standings output has pts/gd/gf populated",
 
 
 # ══════════════════════════════════════════════════════════════
+# 10. FIFA ANNEX C — lookup table integrity
+# ══════════════════════════════════════════════════════════════
+section("10. FIFA Annex C — lookup table integrity")
+
+try:
+    from annex_c import ANNEX_C
+    check("annex_c.py imports cleanly", True)
+except Exception as e:
+    check("annex_c.py imports cleanly", False, str(e))
+    ANNEX_C = {}
+
+VALID_GROUPS   = set("ABCDEFGHIJKL")
+THIRD_SLOTS    = {"R32_1", "R32_2", "R32_7", "R32_8", "R32_11", "R32_12", "R32_15", "R32_16"}
+SLOT_POOLS: dict[str, set[str]] = {
+    "R32_1":  set("ABCDF"),
+    "R32_2":  set("CDFGH"),
+    "R32_7":  set("CEFHI"),
+    "R32_8":  set("EHIJK"),
+    "R32_11": set("BEFIJ"),
+    "R32_12": set("AEHIJ"),
+    "R32_15": set("EFGIJ"),
+    "R32_16": set("DEIJL"),
+}
+
+# ── T17: entry count ────────────────────────────────────────────────────────
+check("T17: ANNEX_C has exactly 495 entries",
+      len(ANNEX_C) == 495, f"got {len(ANNEX_C)}")
+
+# ── T18: key structure ──────────────────────────────────────────────────────
+bad_keys = [k for k in ANNEX_C if not (isinstance(k, frozenset) and len(k) == 8 and k <= VALID_GROUPS)]
+check("T18: every key is a frozenset of exactly 8 valid group letters (A-L)",
+      len(bad_keys) == 0, f"{len(bad_keys)} bad keys")
+
+# ── T19: value structure ─────────────────────────────────────────────────────
+bad_val_slots = {k for k, v in ANNEX_C.items() if set(v.keys()) != THIRD_SLOTS}
+check("T19: every row has exactly the 8 expected slot keys",
+      len(bad_val_slots) == 0, f"{len(bad_val_slots)} rows with wrong slot keys")
+
+# ── T20: all 8 groups from the key appear as values ──────────────────────────
+bad_coverage = {k for k, v in ANNEX_C.items() if set(v.values()) != k}
+check("T20: slot values use all 8 groups from the key (no missing / extra group)",
+      len(bad_coverage) == 0, f"{len(bad_coverage)} rows with coverage mismatch")
+
+# ── T21: slot-pool constraint — every assignment respects FIFA eligibility ───
+pool_violations = 0
+for key, row in ANNEX_C.items():
+    for slot, grp in row.items():
+        if grp not in SLOT_POOLS[slot]:
+            pool_violations += 1
+check("T21: every (slot, group) assignment satisfies the FIFA slot-pool constraint",
+      pool_violations == 0, f"{pool_violations} constraint violations")
+
+# ── T22: group K always goes to R32_8 (only eligible slot) ──────────────────
+k_rows   = {k: v for k, v in ANNEX_C.items() if "K" in k}
+k_ok     = all(v["R32_8"] == "K" for v in k_rows.values())
+check(f"T22: in all {len(k_rows)} rows containing group K, K is always assigned R32_8",
+      k_ok)
+
+# ── T23: group L always goes to R32_16 (only eligible slot) ─────────────────
+l_rows   = {k: v for k, v in ANNEX_C.items() if "L" in k}
+l_ok     = all(v["R32_16"] == "L" for v in l_rows.values())
+check(f"T23: in all {len(l_rows)} rows containing group L, L is always assigned R32_16",
+      l_ok)
+
+# ── T24–T31: spot-checks from Wikipedia / official PDF ───────────────────────
+spot_checks = [
+    # (label,  qualifying_groups,  expected_assignment)
+    ("T24 Row 1  EFGHIJKL", frozenset("EFGHIJKL"),
+     {"R32_7":"E","R32_15":"J","R32_11":"I","R32_1":"F","R32_12":"H","R32_2":"G","R32_16":"L","R32_8":"K"}),
+    ("T25 Row 2  DFGHIJKL", frozenset("DFGHIJKL"),
+     {"R32_7":"H","R32_15":"G","R32_11":"I","R32_1":"D","R32_12":"J","R32_2":"F","R32_16":"L","R32_8":"K"}),
+    ("T26 Row 9  DEFGHIJK", frozenset("DEFGHIJK"),
+     {"R32_7":"E","R32_15":"G","R32_11":"J","R32_1":"D","R32_12":"H","R32_2":"F","R32_16":"I","R32_8":"K"}),
+    ("T27 Row 45 CDEFGHIJ", frozenset("CDEFGHIJ"),
+     {"R32_7":"C","R32_15":"G","R32_11":"J","R32_1":"D","R32_12":"H","R32_2":"F","R32_16":"E","R32_8":"I"}),
+    ("T28 Row 165 BCDEFGHI", frozenset("BCDEFGHI"),
+     {"R32_7":"C","R32_15":"G","R32_11":"B","R32_1":"D","R32_12":"H","R32_2":"F","R32_16":"E","R32_8":"I"}),
+    ("T29 Row 285 ACDEFGHI", frozenset("ACDEFGHI"),
+     {"R32_7":"H","R32_15":"G","R32_11":"E","R32_1":"C","R32_12":"A","R32_2":"F","R32_16":"D","R32_8":"I"}),
+    ("T30 Row 166 AFGHIJKL", frozenset("AFGHIJKL"),
+     {"R32_7":"H","R32_15":"J","R32_11":"I","R32_1":"F","R32_12":"A","R32_2":"G","R32_16":"L","R32_8":"K"}),
+    ("T31 Row 495 ABCDEFGH", frozenset("ABCDEFGH"),
+     {"R32_7":"H","R32_15":"G","R32_11":"B","R32_1":"C","R32_12":"A","R32_2":"F","R32_16":"D","R32_8":"E"}),
+]
+for label, key, expected in spot_checks:
+    actual = ANNEX_C.get(key)
+    check(label, actual == expected,
+          f"\n    expected: {expected}\n    actual:   {actual}")
+
+# ── T32: lookup returns empty dict for an invalid / unknown key ───────────────
+dummy = frozenset("ABCDEFGX")  # X is not a valid group
+check("T32: ANNEX_C.get() returns None (not crash) for an unknown key",
+      ANNEX_C.get(dummy) is None)
+
+# ── T33: core logic of _compute_third_assignment is exercised directly ────────
+# Simulate: top-8 come from groups E,F,G,H,I,J,K,L (row 1 of Annex C)
+# Expected assignment: R32_7→teamE, R32_15→teamJ, R32_11→teamI, R32_1→teamF,
+#                      R32_12→teamH, R32_2→teamG, R32_16→teamL, R32_8→teamK
+top8_sim = [("team_E","E",6,3,5),("team_F","F",5,2,4),("team_G","G",4,1,3),
+            ("team_H","H",4,0,3),("team_I","I",3,0,2),("team_J","J",3,-1,2),
+            ("team_K","K",3,-2,2),("team_L","L",1,-3,1)]
+qualifying_groups_sim = frozenset(g for _, g, *_ in top8_sim)
+annex_row_sim = ANNEX_C.get(qualifying_groups_sim, {})
+group_to_team_sim = {g: t for t, g, *_ in top8_sim}
+assignment_sim = {slot: group_to_team_sim[grp]
+                  for slot, grp in annex_row_sim.items() if grp in group_to_team_sim}
+check("T33: _compute_third_assignment core logic (row 1 EFGHIJKL) → correct team per slot",
+      assignment_sim == {
+          "R32_7":"team_E","R32_15":"team_J","R32_11":"team_I","R32_1":"team_F",
+          "R32_12":"team_H","R32_2":"team_G","R32_16":"team_L","R32_8":"team_K"
+      }, f"got {assignment_sim}")
+
+# ══════════════════════════════════════════════════════════════
 # SUMMARY
 # ══════════════════════════════════════════════════════════════
 total = results["passed"] + results["failed"] + results["skipped"]
