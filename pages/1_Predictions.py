@@ -639,6 +639,10 @@ if not locked:
                         get_user_bets.clear()
                         get_user_group_preds.clear()
                         get_user_knockout_preds.clear()
+                    # Purge widget state so all score inputs and selects render blank
+                    for k in list(st.session_state.keys()):
+                        if k.startswith(("hs_", "as_", "kp_")):
+                            del st.session_state[k]
                     st.session_state.pop("_confirm_reset", None)
                     st.session_state.pop("active_group", None)
                     st.success("✅ All predictions cleared. You can start fresh!")
