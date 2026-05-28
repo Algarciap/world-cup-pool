@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import datetime, timezone, timedelta
 from ui import inject_fonts, restore_session
+from annex_c import ANNEX_C
 from db import (
     get_teams_by_group,
     get_group_matches,
@@ -412,18 +413,8 @@ with tab_ko:
     team_options = ["— Select team —"] + all_teams
 
     def _compute_third_assignment() -> dict[str, str]:
-        """Rank all predicted 3rd-place teams and assign each to exactly one R32
-        slot (greedy, best team first). Returns {slot: team_name}."""
-        THIRD_SLOTS: dict[str, list[str]] = {
-            "R32_1":  list("ABCDF"),
-            "R32_2":  list("CDFGH"),
-            "R32_7":  list("CEFHI"),
-            "R32_8":  list("EHIJK"),
-            "R32_11": list("BEFIJ"),
-            "R32_12": list("AEHIJ"),
-            "R32_15": list("EFGIJ"),
-            "R32_16": list("DEIJL"),
-        }
+        """Rank all predicted 3rd-place teams, take the best 8, and assign them
+        to R32 slots using the exact FIFA Annex C lookup (495 combinations)."""
         candidates: list[tuple[str, str, int, int, int]] = []
         for g in "ABCDEFGHIJKL":
             third = saved_group_preds.get(g, {}).get("third_place")
@@ -455,27 +446,21 @@ with tab_ko:
             candidates.append((third, g, pts, gd, gf))
         candidates.sort(key=lambda x: (x[2], x[3], x[4]), reverse=True)
 
-        # Backtracking assignment — greedy fails for groups like K (only R32_8)
-        # and L (only R32_16) when a higher-ranked team takes their only slot first.
-        ranked = [(t, g) for t, g, *_ in candidates[:8]]
-        assignment: dict[str, str] = {}
-        used_slots: set[str] = set()
+        top8 = candidates[:8]
+        qualifying_groups = frozenset(g for _, g, *_ in top8)
 
-        def _backtrack(idx: int) -> bool:
-            if idx == len(ranked):
-                return True
-            team, group = ranked[idx]
-            for slot, pool in THIRD_SLOTS.items():
-                if slot not in used_slots and group in pool:
-                    assignment[slot] = team
-                    used_slots.add(slot)
-                    if _backtrack(idx + 1):
-                        return True
-                    del assignment[slot]
-                    used_slots.discard(slot)
-            return False
+        # Look up the exact assignment from FIFA Annex C (495 combinations).
+        # Falls back to the pool-constraint check if the combination isn't found
+        # (should never happen with a valid set of 8 groups from A-L).
+        annex_row = ANNEX_C.get(qualifying_groups, {})
 
-        _backtrack(0)
+        # annex_row maps slot -> group letter; resolve to actual team names.
+        group_to_team = {g: t for t, g, *_ in top8}
+        assignment: dict[str, str] = {
+            slot: group_to_team[grp]
+            for slot, grp in annex_row.items()
+            if grp in group_to_team
+        }
         return assignment
 
     # Official FIFA 2026 R32 slot → group position sources
