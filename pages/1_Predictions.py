@@ -570,6 +570,9 @@ with tab_ko:
         ("Final 🏆",       ["FINAL"],                           15, 1),
     ]
 
+    if ko_saved := st.session_state.pop("_ko_saved_round", None):
+        st.success(f"✅ {ko_saved} saved.")
+
     for round_name, slots, pts, n_cols in BRACKET_ROUNDS:
         st.subheader(f"{round_name} — {pts} pts per correct pick")
 
@@ -612,7 +615,8 @@ with tab_ko:
                     for slot, team in picks.items():
                         upsert_knockout_pred(user["id"], slot, team)
                     get_user_knockout_preds.clear()
-                st.success(f"✅ {round_name} saved.")
+                st.session_state["_ko_saved_round"] = round_name
+                st.rerun()
 
         st.divider()
 
