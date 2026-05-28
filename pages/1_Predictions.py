@@ -10,6 +10,7 @@ from db import (
     get_user_group_preds,
     get_user_knockout_preds,
     upsert_knockout_pred,
+    reset_user_predictions,
     is_locked,
     flag_img,
     _rank_group,
@@ -615,3 +616,34 @@ with tab_ko:
                 st.success(f"✅ {round_name} saved.")
 
         st.divider()
+
+# ── Reset predictions ──────────────────────────────────────────────────────────
+if not locked:
+    st.markdown("---")
+    with st.expander("⚠️ Reset all my predictions", expanded=False):
+        st.warning(
+            "This will permanently delete **all** your group and knockout predictions. "
+            "You can re-enter them from scratch, but this cannot be undone."
+        )
+        if not st.session_state.get("_confirm_reset"):
+            if st.button("🗑️ Reset my predictions", type="secondary"):
+                st.session_state["_confirm_reset"] = True
+                st.rerun()
+        else:
+            st.error("Are you sure? This will wipe everything you've entered.")
+            col_yes, col_no = st.columns(2)
+            with col_yes:
+                if st.button("Yes, delete everything", type="primary", use_container_width=True):
+                    with st.spinner("Resetting…"):
+                        reset_user_predictions(user["id"])
+                        get_user_bets.clear()
+                        get_user_group_preds.clear()
+                        get_user_knockout_preds.clear()
+                    st.session_state.pop("_confirm_reset", None)
+                    st.session_state.pop("active_group", None)
+                    st.success("✅ All predictions cleared. You can start fresh!")
+                    st.rerun()
+            with col_no:
+                if st.button("Cancel", use_container_width=True):
+                    st.session_state.pop("_confirm_reset", None)
+                    st.rerun()

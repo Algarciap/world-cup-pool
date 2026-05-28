@@ -424,6 +424,14 @@ def upsert_knockout_pred(user_id: str, slot: str, predicted_winner: str) -> None
     ).execute()
 
 
+def reset_user_predictions(user_id: str) -> None:
+    """Deletes all predictions for the given user (bets, group, knockout)."""
+    db = _client()
+    db.table("bets").delete().eq("user_id", user_id).execute()
+    db.table("group_predictions").delete().eq("user_id", user_id).execute()
+    db.table("knockout_predictions").delete().eq("user_id", user_id).execute()
+
+
 # ── Leaderboard ────────────────────────────────────────────────────────────────
 
 def get_leaderboard() -> list[dict]:
