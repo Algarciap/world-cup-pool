@@ -454,14 +454,28 @@ with tab_ko:
                         pts += 1
             candidates.append((third, g, pts, gd, gf))
         candidates.sort(key=lambda x: (x[2], x[3], x[4]), reverse=True)
+
+        # Backtracking assignment — greedy fails for groups like K (only R32_8)
+        # and L (only R32_16) when a higher-ranked team takes their only slot first.
+        ranked = [(t, g) for t, g, *_ in candidates[:8]]
         assignment: dict[str, str] = {}
         used_slots: set[str] = set()
-        for team, group, *_ in candidates[:8]:
+
+        def _backtrack(idx: int) -> bool:
+            if idx == len(ranked):
+                return True
+            team, group = ranked[idx]
             for slot, pool in THIRD_SLOTS.items():
                 if slot not in used_slots and group in pool:
                     assignment[slot] = team
                     used_slots.add(slot)
-                    break
+                    if _backtrack(idx + 1):
+                        return True
+                    del assignment[slot]
+                    used_slots.discard(slot)
+            return False
+
+        _backtrack(0)
         return assignment
 
     # Official FIFA 2026 R32 slot → group position sources
