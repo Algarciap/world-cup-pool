@@ -255,6 +255,79 @@ def get_user_group_preds(user_id: str) -> dict[str, dict]:
     return {row["group_name"]: row for row in rows}
 
 
+def _rank_group(teams: list[str], results: list[dict]) -> list[str]:
+    """Rank teams in a group per FIFA 2026 Article 13 tiebreaker criteria.
+
+    results: list of dicts with keys home_team, away_team, home_score, away_score.
+    Returns teams sorted from 1st place to last.
+
+    Order: 1) Points  2) H2H pts  3) H2H GD  4) H2H GF  5) Overall GD  6) Overall GF
+    """
+    from collections import defaultdict
+
+    overall: dict[str, dict] = {t: {"pts": 0, "gf": 0, "ga": 0} for t in teams}
+    for m in results:
+        h, a = m["home_team"], m["away_team"]
+        hs, as_ = m["home_score"], m["away_score"]
+        overall[h]["gf"] += hs
+        overall[h]["ga"] += as_
+        overall[a]["gf"] += as_
+        overall[a]["ga"] += hs
+        if hs > as_:
+            overall[h]["pts"] += 3
+        elif as_ > hs:
+            overall[a]["pts"] += 3
+        else:
+            overall[h]["pts"] += 1
+            overall[a]["pts"] += 1
+
+    def _h2h(tied: list[str]) -> dict[str, dict]:
+        ts = set(tied)
+        h2h: dict[str, dict] = {t: {"pts": 0, "gf": 0, "ga": 0} for t in tied}
+        for m in results:
+            hm, am = m["home_team"], m["away_team"]
+            if hm not in ts or am not in ts:
+                continue
+            hs, as_ = m["home_score"], m["away_score"]
+            h2h[hm]["gf"] += hs
+            h2h[hm]["ga"] += as_
+            h2h[am]["gf"] += as_
+            h2h[am]["ga"] += hs
+            if hs > as_:
+                h2h[hm]["pts"] += 3
+            elif as_ > hs:
+                h2h[am]["pts"] += 3
+            else:
+                h2h[hm]["pts"] += 1
+                h2h[am]["pts"] += 1
+        return h2h
+
+    def _rank_tied(tied: list[str]) -> list[str]:
+        if len(tied) <= 1:
+            return tied
+        h2h = _h2h(tied)
+        return sorted(
+            tied,
+            key=lambda t: (
+                h2h[t]["pts"],
+                h2h[t]["gf"] - h2h[t]["ga"],
+                h2h[t]["gf"],
+                overall[t]["gf"] - overall[t]["ga"],
+                overall[t]["gf"],
+            ),
+            reverse=True,
+        )
+
+    pts_groups: dict[int, list[str]] = defaultdict(list)
+    for t in teams:
+        pts_groups[overall[t]["pts"]].append(t)
+
+    ranked: list[str] = []
+    for pts_val in sorted(pts_groups.keys(), reverse=True):
+        ranked.extend(_rank_tied(pts_groups[pts_val]))
+    return ranked
+
+
 def derive_and_save_group_prediction(user_id: str, group_name: str) -> None:
     """Auto-derives implied group standings from the user's match predictions
     and persists them to group_predictions.  Called after saving match bets."""
@@ -270,41 +343,27 @@ def derive_and_save_group_prediction(user_id: str, group_name: str) -> None:
     bets_rows = db.table("bets").select("*").eq("user_id", user_id).execute().data
     bets: dict[int, dict] = {row["match_id"]: row for row in bets_rows}
 
-    # Accumulate points + goals for tiebreaker (GD, then GF)
-    stats: dict[str, dict] = {}
+    # Build predicted match results for ranking
+    teams: set[str] = set()
+    results: list[dict] = []
     for m in matches:
         h, a = m["home_team"], m["away_team"]
-        for t in (h, a):
-            stats.setdefault(t, {"pts": 0, "gf": 0, "ga": 0})
+        teams.update((h, a))
         bet = bets.get(m["id"])
         if not bet:
             continue
         hs = bet.get("predicted_home_score") or 0
         as_ = bet.get("predicted_away_score") or 0
-        stats[h]["gf"] += hs
-        stats[h]["ga"] += as_
-        stats[a]["gf"] += as_
-        stats[a]["ga"] += hs
-        if bet["predicted_winner"] == "home":
-            stats[h]["pts"] += 3
-        elif bet["predicted_winner"] == "away":
-            stats[a]["pts"] += 3
-        else:
-            stats[h]["pts"] += 1
-            stats[a]["pts"] += 1
+        results.append({"home_team": h, "away_team": a, "home_score": hs, "away_score": as_})
 
-    if len(stats) < 4:
+    if len(teams) < 4:
         return  # group hasn't been fully initialised yet
 
     # Only save if all matches in the group are predicted
     if sum(1 for m in matches if m["id"] in bets) < len(matches):
         return
 
-    standings = sorted(
-        stats.keys(),
-        key=lambda t: (stats[t]["pts"], stats[t]["gf"] - stats[t]["ga"], stats[t]["gf"]),
-        reverse=True,
-    )
+    standings = _rank_group(list(teams), results)
     db.table("group_predictions").upsert(
         {
             "user_id": user_id,
@@ -467,32 +526,11 @@ def calculate_group_points(group_name: str) -> None:
     if len(finished) < 6:
         return  # group not yet complete
 
-    pts: dict[str, int] = {}
-    gd: dict[str, int] = {}
-    gf: dict[str, int] = {}
-
+    teams: set[str] = set()
     for m in finished:
-        h, a = m["home_team"], m["away_team"]
-        hs, as_ = m["home_score"], m["away_score"]
-        for team in (h, a):
-            pts.setdefault(team, 0)
-            gd.setdefault(team, 0)
-            gf.setdefault(team, 0)
-        gf[h] += hs
-        gf[a] += as_
-        gd[h] += hs - as_
-        gd[a] += as_ - hs
-        if hs > as_:
-            pts[h] += 3
-        elif as_ > hs:
-            pts[a] += 3
-        else:
-            pts[h] += 1
-            pts[a] += 1
+        teams.update((m["home_team"], m["away_team"]))
 
-    standings = sorted(
-        pts.keys(), key=lambda t: (pts[t], gd[t], gf[t]), reverse=True
-    )
+    standings = _rank_group(list(teams), finished)
     actual_1st = standings[0] if len(standings) > 0 else None
     actual_2nd = standings[1] if len(standings) > 1 else None
     actual_3rd = standings[2] if len(standings) > 2 else None

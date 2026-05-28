@@ -261,6 +261,233 @@ else:
 
 
 # ══════════════════════════════════════════════════════════════
+# 8. _rank_group — FIFA 2026 Article 13 tiebreaker logic
+# ══════════════════════════════════════════════════════════════
+section("8. _rank_group — FIFA 2026 Article 13 tiebreaker")
+
+check("_rank_group is accessible from db module", hasattr(db, "_rank_group"))
+
+def _m(h, a, hs, as_):
+    return {"home_team": h, "away_team": a, "home_score": hs, "away_score": as_}
+
+# ── T1: no tie — clean points order ────────────────────────────────────────
+# A=9pts, B=6pts, C=3pts, D=0pts
+r1 = db._rank_group(["A","B","C","D"], [
+    _m("A","B",1,0), _m("A","C",1,0), _m("A","D",1,0),
+    _m("B","C",1,0), _m("B","D",1,0),
+    _m("C","D",1,0),
+])
+check("T1 no-tie: A 1st, B 2nd, C 3rd, D 4th",
+      r1 == ["A","B","C","D"], f"got {r1}")
+
+# ── T2: H2H decides 3rd vs 4th ──────────────────────────────────────────────
+# Beta and Gamma both 3pts.  Beta beat Gamma 1-0 (H2H).
+# Overall GD: Gamma=0, Beta=-2  →  old code (GD only) wrongly put Gamma 3rd.
+# Art.13: H2H win comes first → Beta 3rd, Gamma 4th.
+#
+# Full table:
+#   Alpha  6pts  GD=0   (beat Beta 2-1, beat Gamma 1-0, lost to Delta 0-2)
+#   Delta  6pts  GD=+2  (beat Alpha 2-0, beat Beta 2-0, lost to Gamma 0-2)
+#   Beta   3pts  GD=-2  (beat Gamma 1-0)
+#   Gamma  3pts  GD=0   (beat Delta 2-0)
+r2 = db._rank_group(["Alpha","Beta","Gamma","Delta"], [
+    _m("Alpha","Beta", 2,1), _m("Alpha","Gamma",1,0), _m("Alpha","Delta",0,2),
+    _m("Beta", "Gamma",1,0), _m("Beta", "Delta", 0,2),
+    _m("Gamma","Delta",2,0),
+])
+check("T2 H2H 3rd place: Delta 1st, Alpha 2nd, Beta 3rd, Gamma 4th",
+      r2 == ["Delta","Alpha","Beta","Gamma"], f"got {r2}")
+check("T2 confirms old-code bug fixed: 3rd is Beta (H2H winner), not Gamma (better overall GD)",
+      r2[2] == "Beta", f"3rd={r2[2]!r}")
+
+# ── T3: H2H draw → fallthrough to overall GD ───────────────────────────────
+# B and C both 4pts; their H2H match was a 0-0 draw (all H2H criteria tied).
+# Fallthrough: C has overall GD +1, B has overall GD 0 → C ranks above B.
+#
+# Full table:
+#   A  9pts  GD=+5  (beat B 2-0, beat C 2-0, beat D 1-0)
+#   C  4pts  GD=+1  (drew B 0-0, beat D 3-0, lost to A 0-2)
+#   B  4pts  GD=0   (drew C 0-0, beat D 2-0, lost to A 0-2)
+#   D  0pts  GD=-6  (lost all)
+r3 = db._rank_group(["A","B","C","D"], [
+    _m("A","B",2,0), _m("A","C",2,0), _m("A","D",1,0),
+    _m("B","C",0,0), _m("B","D",2,0),
+    _m("C","D",3,0),
+])
+check("T3 draw fallthrough: A 1st, C 2nd (GD+1), B 3rd (GD 0), D 4th",
+      r3 == ["A","C","B","D"], f"got {r3}")
+
+# ── T4: 3-way tie on points, all drew each other — no crash ────────────────
+# A, B, C all 5pts (all beat D 3-0; all drew each other).
+# H2H among A,B,C: all 1-1 draws → H2H pts=2, GD=0, GF=1 for each.
+# Overall GD: all +3 (from D) + 0 net from draws = +3 for each.  Fully tied.
+# Result: D is unambiguously last (0pts); A, B, C order is arbitrary but stable.
+r4 = db._rank_group(["A","B","C","D"], [
+    _m("A","D",3,0), _m("B","D",3,0), _m("C","D",3,0),
+    _m("A","B",1,1), _m("A","C",1,1), _m("B","C",1,1),
+])
+check("T4 3-way fully-tied: D is last (0 pts)",
+      r4[3] == "D", f"got {r4}")
+check("T4 3-way fully-tied: A, B, C fill top 3",
+      set(r4[:3]) == {"A","B","C"}, f"got {r4}")
+
+# ── T5: 3-way tie, H2H pts equal, H2H GD decides ──────────────────────────
+# Circular wins: A beats B 3-0, B beats C 3-0, C beats A 1-0.  All beat D 1-0.
+# H2H pts: A=3, B=3, C=3 (tied) → H2H GD: A=+2, B=0, C=-2 → A > B > C
+# Verified expected: ['A','B','C','D']
+r5 = db._rank_group(["A","B","C","D"], [
+    _m("A","B",3,0), _m("B","C",3,0), _m("C","A",1,0),
+    _m("A","D",1,0), _m("B","D",1,0), _m("C","D",1,0),
+])
+check("T5 3-way H2H GD: A 1st (GD+2), B 2nd (0), C 3rd (-2), D 4th",
+      r5 == ["A","B","C","D"], f"got {r5}")
+
+# ── T6: H2H draw, same overall GD — overall GF is final tiebreaker ─────────
+# B and C both 4pts. H2H drew 0-0. Overall GD: B=+2, C=+2 (tied).
+# Overall GF: C=5, B=3 → C ranks above B on criterion 6.
+#
+# Full table:
+#   A  9pts  GD=+3  (beat B 1-0, beat C 2-1, beat D 1-0)
+#   C  4pts  GD=+2  GF=5  (drew B 0-0, beat D 4-1, lost to A 1-2)
+#   B  4pts  GD=+2  GF=3  (drew C 0-0, beat D 3-0, lost to A 0-1)
+#   D  0pts  (lost all)
+r6 = db._rank_group(["A","B","C","D"], [
+    _m("A","B",1,0), _m("A","C",2,1), _m("A","D",1,0),
+    _m("B","C",0,0), _m("B","D",3,0),
+    _m("C","D",4,1),
+])
+check("T6 overall-GF tiebreaker: A 1st, C 2nd (GF=5), B 3rd (GF=3), D 4th",
+      r6 == ["A","C","B","D"], f"got {r6}")
+
+# ── T7: all 6 matches drawn — degenerate, must not crash ──────────────────
+# All 4 teams: 3pts, GD=0, GF=3 — completely tied, order is arbitrary.
+r7 = db._rank_group(["A","B","C","D"], [
+    _m("A","B",1,1), _m("A","C",1,1), _m("A","D",1,1),
+    _m("B","C",1,1), _m("B","D",1,1), _m("C","D",1,1),
+])
+check("T7 all-draws: returns all 4 teams without crashing",
+      len(r7) == 4 and set(r7) == {"A","B","C","D"}, f"got {r7}")
+
+# ── T8: partial group — only 2 of 6 matches played ────────────────────────
+# A beats B 2-0 (A=3pts GD+2), C beats D 1-0 (C=3pts GD+1).
+# A vs C no H2H → falls to overall GD: A(+2) > C(+1).
+# D has GD=-1, B has GD=-2 → D above B in last two spots.
+# Verified expected: ['A','C','D','B']
+r8 = db._rank_group(["A","B","C","D"], [
+    _m("A","B",2,0),
+    _m("C","D",1,0),
+])
+check("T8 partial group: A 1st, C 2nd, D 3rd, B 4th",
+      r8 == ["A","C","D","B"], f"got {r8}")
+
+# ── T9: 4-way tie, circular wins + cross draws — no crash ─────────────────
+# A beats B, B beats C, C beats D, D beats A (circular 1-0 each).
+# A draws C 0-0, B draws D 0-0.  All 4pts, GD=0, GF=1.  Fully tied.
+r9 = db._rank_group(["A","B","C","D"], [
+    _m("A","B",1,0), _m("B","C",1,0), _m("C","D",1,0), _m("D","A",1,0),
+    _m("A","C",0,0), _m("B","D",0,0),
+])
+check("T9 4-way circular tie: returns all 4 teams without crashing",
+      len(r9) == 4 and set(r9) == {"A","B","C","D"}, f"got {r9}")
+
+
+# ══════════════════════════════════════════════════════════════
+# 9. _compute_standings — source-level and DB-dependent checks
+# ══════════════════════════════════════════════════════════════
+section("9. _compute_standings & scoring — source and skip checks")
+
+# ── T10-T14: DB-dependent scoring tests ────────────────────────────────────
+skip("T10: calculate_group_points uses H2H ranking — awards pts to correct predictor",
+     "requires DB with a finished group that triggers the H2H tiebreaker")
+skip("T11: calculate_group_points returns early when group has < 6 results",
+     "requires DB with a partially finished group")
+skip("T12: users who predicted wrong 3rd place receive 0 pts for that criterion",
+     "requires DB test data with known wrong prediction")
+skip("T13: derive_and_save_group_prediction does not persist when < 6 bets saved",
+     "requires DB — checks early-return guard in prediction derivation")
+skip("T14: derive_and_save_group_prediction persists H2H-correct standings with all 6 bets",
+     "requires DB — end-to-end derivation round-trip")
+
+# ── T15: _compute_standings delegates to _rank_group (source inspection) ───
+pred_src = (ROOT / "pages" / "1_Predictions.py").read_text(encoding="utf-8")
+check("T15: _rank_group is imported in pages/1_Predictions.py",
+      "_rank_group" in pred_src, "import not found in source")
+check("T15: _compute_standings body calls _rank_group()",
+      "_rank_group(" in pred_src, "call not found in source")
+
+# ── T16: _compute_standings output structure ────────────────────────────────
+# We can't import 1_Predictions.py directly (st.set_page_config runs at module
+# level), so we re-implement the same logic using _rank_group directly and
+# verify the output structure matches what the UI expects.
+def _standings_via_rank_group(batch, matches):
+    """Mirrors _compute_standings from 1_Predictions.py."""
+    results_list = []
+    teams = set()
+    for match in matches:
+        h, a = match["home_team"], match["away_team"]
+        teams.update((h, a))
+        entry = batch.get(match["id"])
+        if not entry:
+            continue
+        _, hs, as_ = entry
+        results_list.append(_m(h, a, hs, as_))
+    if not results_list:
+        return [{"team": t, "pts": 0, "gd": 0, "gf": 0} for t in sorted(teams)]
+    ranked = db._rank_group(list(teams), results_list)
+    data = {t: {"pts": 0, "gf": 0, "ga": 0} for t in teams}
+    for r in results_list:
+        h, a, hs, as_ = r["home_team"], r["away_team"], r["home_score"], r["away_score"]
+        data[h]["gf"] += hs; data[h]["ga"] += as_
+        data[a]["gf"] += as_; data[a]["ga"] += hs
+        if hs > as_: data[h]["pts"] += 3
+        elif as_ > hs: data[a]["pts"] += 3
+        else: data[h]["pts"] += 1; data[a]["pts"] += 1
+    return [{"team": t, "pts": data[t]["pts"], "gd": data[t]["gf"] - data[t]["ga"],
+             "gf": data[t]["gf"]} for t in ranked]
+
+# T16a: empty batch returns 4 rows with correct keys and 0 pts
+matches_stub = [
+    {"id": 1, "home_team": "Alpha", "away_team": "Beta"},
+    {"id": 2, "home_team": "Alpha", "away_team": "Gamma"},
+    {"id": 3, "home_team": "Alpha", "away_team": "Delta"},
+    {"id": 4, "home_team": "Beta",  "away_team": "Gamma"},
+    {"id": 5, "home_team": "Beta",  "away_team": "Delta"},
+    {"id": 6, "home_team": "Gamma", "away_team": "Delta"},
+]
+s16a = _standings_via_rank_group({}, matches_stub)
+check("T16a empty batch: returns 4 rows", len(s16a) == 4, f"got {len(s16a)}")
+check("T16a empty batch: each row has team/pts/gd/gf keys",
+      all({"team","pts","gd","gf"} <= set(r.keys()) for r in s16a),
+      f"got keys {[list(r.keys()) for r in s16a]}")
+check("T16a empty batch: all pts are 0", all(r["pts"] == 0 for r in s16a), str(s16a))
+
+# T16b: T2 scenario through _compute_standings — same order as _rank_group
+batch_t2 = {
+    1: ("home", 2, 1),  # Alpha 2-1 Beta
+    2: ("home", 1, 0),  # Alpha 1-0 Gamma
+    3: ("away", 0, 2),  # Delta beats Alpha 2-0
+    4: ("home", 1, 0),  # Beta 1-0 Gamma  ← decisive H2H
+    5: ("away", 0, 2),  # Delta beats Beta 2-0
+    6: ("home", 2, 0),  # Gamma 2-0 Delta
+}
+matches_t2 = [
+    {"id": 1, "home_team": "Alpha", "away_team": "Beta"},
+    {"id": 2, "home_team": "Alpha", "away_team": "Gamma"},
+    {"id": 3, "home_team": "Alpha", "away_team": "Delta"},
+    {"id": 4, "home_team": "Beta",  "away_team": "Gamma"},
+    {"id": 5, "home_team": "Beta",  "away_team": "Delta"},
+    {"id": 6, "home_team": "Gamma", "away_team": "Delta"},
+]
+s16b = _standings_via_rank_group(batch_t2, matches_t2)
+s16b_order = [r["team"] for r in s16b]
+check("T16b _compute_standings T2 scenario: Delta 1st, Alpha 2nd, Beta 3rd, Gamma 4th",
+      s16b_order == ["Delta","Alpha","Beta","Gamma"], f"got {s16b_order}")
+check("T16b _compute_standings output has pts/gd/gf populated",
+      all(r["pts"] > 0 for r in s16b),
+      str([(r["team"], r["pts"]) for r in s16b]))
+
+
+# ══════════════════════════════════════════════════════════════
 # SUMMARY
 # ══════════════════════════════════════════════════════════════
 total = results["passed"] + results["failed"] + results["skipped"]

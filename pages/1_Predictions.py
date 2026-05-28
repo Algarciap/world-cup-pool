@@ -12,6 +12,7 @@ from db import (
     upsert_knockout_pred,
     is_locked,
     flag_img,
+    _rank_group,
 )
 
 st.set_page_config(
@@ -102,32 +103,37 @@ def _compute_standings(
     batch: dict[int, tuple[str, int, int]], matches: list[dict]
 ) -> list[dict]:
     """Derive group standings from batch {match_id: (winner, home_score, away_score)}."""
-    data: dict[str, dict] = {}
+    results = []
+    teams: set[str] = set()
     for m in matches:
         h, a = m["home_team"], m["away_team"]
-        for t in (h, a):
-            data.setdefault(t, {"pts": 0, "gf": 0, "ga": 0})
+        teams.update((h, a))
         entry = batch.get(m["id"])
         if not entry:
             continue
-        w, hs, as_ = entry
-        data[h]["gf"] += hs
-        data[h]["ga"] += as_
-        data[a]["gf"] += as_
-        data[a]["ga"] += hs
-        if w == "home":
-            data[h]["pts"] += 3
-        elif w == "away":
-            data[a]["pts"] += 3
-        else:
-            data[h]["pts"] += 1
-            data[a]["pts"] += 1
-    return sorted(
-        [{"team": t, "pts": d["pts"], "gd": d["gf"] - d["ga"], "gf": d["gf"]}
-         for t, d in data.items()],
-        key=lambda x: (x["pts"], x["gd"], x["gf"]),
-        reverse=True,
-    )
+        _, hs, as_ = entry
+        results.append({"home_team": h, "away_team": a, "home_score": hs, "away_score": as_})
+
+    if not results:
+        return [{"team": t, "pts": 0, "gd": 0, "gf": 0} for t in sorted(teams)]
+
+    ranked = _rank_group(list(teams), results)
+
+    # Rebuild per-team overall stats for display
+    data: dict[str, dict] = {t: {"pts": 0, "gf": 0, "ga": 0} for t in teams}
+    for r in results:
+        h, a = r["home_team"], r["away_team"]
+        hs, as_ = r["home_score"], r["away_score"]
+        data[h]["gf"] += hs; data[h]["ga"] += as_
+        data[a]["gf"] += as_; data[a]["ga"] += hs
+        if hs > as_: data[h]["pts"] += 3
+        elif as_ > hs: data[a]["pts"] += 3
+        else: data[h]["pts"] += 1; data[a]["pts"] += 1
+
+    return [
+        {"team": t, "pts": data[t]["pts"], "gd": data[t]["gf"] - data[t]["ga"], "gf": data[t]["gf"]}
+        for t in ranked
+    ]
 
 
 def _show_standings(standings: list[dict]) -> None:
