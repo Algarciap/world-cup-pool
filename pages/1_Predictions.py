@@ -530,17 +530,24 @@ with tab_ko:
     def _team_idx(val: str | None, opts: list[str]) -> int:
         return opts.index(val) if val and val in opts else 0
 
+    def _sf_loser_teams() -> tuple[str | None, str | None]:
+        """Returns (SF_1 loser, SF_2 loser) by directly reading QF and SF picks."""
+        sf1_a = saved_ko_preds.get("QF_1", {}).get("predicted_winner")
+        sf1_b = saved_ko_preds.get("QF_2", {}).get("predicted_winner")
+        sf1_w = saved_ko_preds.get("SF_1", {}).get("predicted_winner")
+        loser1 = (sf1_b if sf1_w == sf1_a else sf1_a) if (sf1_a and sf1_b and sf1_w in (sf1_a, sf1_b)) else None
+
+        sf2_a = saved_ko_preds.get("QF_3", {}).get("predicted_winner")
+        sf2_b = saved_ko_preds.get("QF_4", {}).get("predicted_winner")
+        sf2_w = saved_ko_preds.get("SF_2", {}).get("predicted_winner")
+        loser2 = (sf2_b if sf2_w == sf2_a else sf2_a) if (sf2_a and sf2_b and sf2_w in (sf2_a, sf2_b)) else None
+
+        return loser1, loser2
+
     def _slot_teams(slot: str) -> tuple[str | None, str | None]:
         """Returns the two real team names for a slot if both are determinable, else (None, None)."""
         if slot == "THIRD_PLACE":
-            # Contestants are the losers of the two semi-finals
-            def _sf_loser(sf: str) -> str | None:
-                ta, tb = _slot_teams(sf)
-                winner = saved_ko_preds.get(sf, {}).get("predicted_winner")
-                if ta and tb and winner in (ta, tb):
-                    return tb if winner == ta else ta
-                return None
-            return _sf_loser("SF_1"), _sf_loser("SF_2")
+            return _sf_loser_teams()
         if slot in R32_SOURCES:
             pos_a, pos_b = R32_SOURCES[slot]
             ta = _resolve_pos(pos_a, slot)
@@ -557,15 +564,10 @@ with tab_ko:
     def _matchup(slot: str) -> str:
         """Returns HTML 'Team A vs Team B': from group preds for R32, from KO picks for later rounds."""
         if slot == "THIRD_PLACE":
-            # Show the losers of the two semi-finals
-            def _sf_loser_html(sf: str) -> str:
-                ta, tb = _slot_teams(sf)
-                winner = saved_ko_preds.get(sf, {}).get("predicted_winner")
-                if ta and tb and winner in (ta, tb):
-                    loser = tb if winner == ta else ta
-                    return f"{flag_img(loser)}<b>{loser}</b>"
-                return f"loser of {SLOT_NAMES.get(sf, sf)}"
-            return f"{_sf_loser_html('SF_1')}&nbsp;&nbsp;vs&nbsp;&nbsp;{_sf_loser_html('SF_2')}"
+            loser1, loser2 = _sf_loser_teams()
+            t1 = f"{flag_img(loser1)}<b>{loser1}</b>" if loser1 else "loser of Semi-Final 1"
+            t2 = f"{flag_img(loser2)}<b>{loser2}</b>" if loser2 else "loser of Semi-Final 2"
+            return f"{t1}&nbsp;&nbsp;vs&nbsp;&nbsp;{t2}"
         # R32: derive from group stage predictions
         if slot in R32_SOURCES:
             pos_a, pos_b = R32_SOURCES[slot]
