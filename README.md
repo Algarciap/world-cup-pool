@@ -54,6 +54,7 @@ Built with Python and Streamlit. No prior web dev experience — shipped with AI
 app.py                  # Home page — login, office prompt and welcome screen
 db.py                   # Supabase data access layer
 ui.py                   # Shared helpers (fonts, session restore)
+annex_c.py              # FIFA Annex C lookup — all 495 combinations for 3rd-place slot assignment
 requirements.txt
 pages/
   1_Predictions.py      # Submit group + knockout predictions
@@ -63,6 +64,11 @@ pages/
   5_Admin.py            # Admin panel (password-gated)
 scripts/
   sync_results.py       # Standalone ESPN sync (for CI / cron)
+  generate_annex_c.py   # One-off script that generated annex_c.py from the FIFA regulations PDF
+  run_tests.py          # Runs all test scripts
+  test_espn.py          # Tests ESPN API connectivity and score parsing
+  test_espn_names.py    # Verifies ESPN team names match the DB team names
+  test_third_place.py   # Smoke test for 3rd place match loser derivation logic
 supabase/
   schema.sql            # Full DB schema — run this first
   seed.sql              # Teams and match fixtures
@@ -147,6 +153,8 @@ python scripts/sync_results.py
 
 The script exits with code `1` if any errors are encountered, making it safe to use in CI pipelines.
 
+**Automated via GitHub Actions** — `.github/workflows/sync_results.yml` runs the sync automatically ~30 minutes after each match window closes (four scheduled times daily during the tournament). To enable it, add `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` as repository secrets under **Settings → Secrets and variables → Actions**. A manual trigger is also available from the Actions tab.
+
 ---
 
 ## Admin Panel
@@ -156,4 +164,16 @@ Access at `/5_Admin` (or via the sidebar). Protected by `ADMIN_PASSWORD`.
 - **Auto-sync from ESPN** — fetches completed scores and updates the database
 - **Manual entry** — enter scorelines for any upcoming match directly
 - **Recalculate points** — trigger group-stage and knockout scoring on demand
+
+---
+
+## GitHub Codespaces
+
+The repo includes a `.devcontainer` config for one-click cloud development:
+
+1. Click **Code → Codespaces → Create codespace** on GitHub
+2. Dependencies are installed automatically from `requirements.txt`
+3. The app starts on port 8501 and opens in a preview tab
+
+You'll still need to add your secrets — either via a `.env` file or the Codespace's **Secrets** settings.
 
