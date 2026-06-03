@@ -1,0 +1,121 @@
+﻿python : 2026-05-28 16:46:16.248 WARNING 
+streamlit.runtime.caching.cache_data_api: No runtime found, using 
+MemoryCacheStorageManager
+En línea: 1 Carácter: 1
++ python scripts/run_tests.py 2>&1 | Out-File -Encoding utf8 test_out.t ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (2026-05-28 16:4...eStorageManager 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+2026-05-28 16:46:16.250 WARNING streamlit.runtime.caching.cache_data_api: No 
+runtime found, using MemoryCacheStorageManager
+2026-05-28 16:46:16.251 WARNING streamlit.runtime.caching.cache_data_api: No 
+runtime found, using MemoryCacheStorageManager
+2026-05-28 16:46:16.252 WARNING streamlit.runtime.caching.cache_data_api: No 
+runtime found, using MemoryCacheStorageManager
+2026-05-28 16:46:16.252 WARNING streamlit.runtime.caching.cache_data_api: No 
+runtime found, using MemoryCacheStorageManager
+
+[1m────────────────────────────────────────────────────────────[0m
+[1m  1. Module imports[0m
+[1m────────────────────────────────────────────────────────────[0m
+[92m  PASS[0m  db.py imports cleanly
+
+[1m────────────────────────────────────────────────────────────[0m
+[1m  2. OFFICES constant[0m
+[1m────────────────────────────────────────────────────────────[0m
+[92m  PASS[0m  OFFICES is defined
+[92m  PASS[0m  OFFICES has exactly 6 entries
+[92m  PASS[0m  OFFICES contains the 6 correct values
+[92m  PASS[0m  OFFICES contains no duplicates
+
+[1m────────────────────────────────────────────────────────────[0m
+[1m  3. get_office_summary logic[0m
+[1m────────────────────────────────────────────────────────────[0m
+[92m  PASS[0m  Empty leaderboard returns 6 office rows
+[92m  PASS[0m  All offices have 0 participants when leaderboard is empty
+[92m  PASS[0m  Top scorer is '—' for empty offices
+[92m  PASS[0m  Spain card shows 1 participant
+[92m  PASS[0m  Spain avg_score is 15.0
+[92m  PASS[0m  Spain top_scorer is Alice
+[92m  PASS[0m  Malta card shows 0 participants when no Malta users
+[92m  PASS[0m  Spain avg is (20+10)/2 = 15.0
+[92m  PASS[0m  Spain top scorer is Alice (20 pts)
+[92m  PASS[0m  Malta top scorer is Carol (30 pts)
+[92m  PASS[0m  Null-office user is not counted in any office
+[92m  PASS[0m  Summary rows follow OFFICES order
+
+[1m────────────────────────────────────────────────────────────[0m
+[1m  4. Function signatures[0m
+[1m────────────────────────────────────────────────────────────[0m
+[92m  PASS[0m  get_or_create_user accepts 'office' parameter
+[92m  PASS[0m  'office' parameter has a default (optional)
+[92m  PASS[0m  update_user_office is defined
+[92m  PASS[0m  update_user_office accepts (user_id, office)
+[92m  PASS[0m  get_office_summary is defined
+[92m  PASS[0m  get_office_summary accepts leaderboard_rows
+
+[1m────────────────────────────────────────────────────────────[0m
+[1m  5. Lock date[0m
+[1m────────────────────────────────────────────────────────────[0m
+[92m  PASS[0m  LOCK_DT is June 11 2026 19:00 UTC
+[92m  PASS[0m  is_locked() returns False before June 11
+
+[1m────────────────────────────────────────────────────────────[0m
+[1m  6. Flag helpers[0m
+[1m────────────────────────────────────────────────────────────[0m
+[92m  PASS[0m  flag_img returns empty string for unknown team
+[92m  PASS[0m  flag_img returns <img> tag for known team
+[92m  PASS[0m  flag_img includes flagcdn.com URL
+[92m  PASS[0m  with_flag prefixes flag emoji
+
+[1m────────────────────────────────────────────────────────────[0m
+[1m  7. Live DB connectivity[0m
+[1m────────────────────────────────────────────────────────────[0m
+[92m  PASS[0m  users table is reachable
+[92m  PASS[0m  users rows contain 'office' key
+[92m  PASS[0m  leaderboard view is reachable
+[92m  PASS[0m  leaderboard rows contain 'office' key
+[92m  PASS[0m  get_or_create_user creates user with office
+[92m  PASS[0m  Office is persisted in DB
+[92m  PASS[0m  update_user_office changes office in DB
+[92m  PASS[0m  get_or_create_user does not overwrite an already-set office
+[92m  PASS[0m  Test user cleaned up from DB
+
+[1m────────────────────────────────────────────────────────────[0m
+[1m  8. _rank_group — FIFA 2026 Article 13 tiebreaker[0m
+[1m────────────────────────────────────────────────────────────[0m
+[92m  PASS[0m  _rank_group is accessible from db module
+[92m  PASS[0m  T1 no-tie: A 1st, B 2nd, C 3rd, D 4th
+[92m  PASS[0m  T2 H2H 3rd place: Delta 1st, Alpha 2nd, Beta 3rd, Gamma 4th
+[92m  PASS[0m  T2 confirms old-code bug fixed: 3rd is Beta (H2H winner), not Gamma (better overall GD)
+[92m  PASS[0m  T3 draw fallthrough: A 1st, C 2nd (GD+1), B 3rd (GD 0), D 4th
+[92m  PASS[0m  T4 3-way fully-tied: D is last (0 pts)
+[92m  PASS[0m  T4 3-way fully-tied: A, B, C fill top 3
+[92m  PASS[0m  T5 3-way H2H GD: A 1st (GD+2), B 2nd (0), C 3rd (-2), D 4th
+[92m  PASS[0m  T6 overall-GF tiebreaker: A 1st, C 2nd (GF=5), B 3rd (GF=3), D 4th
+[92m  PASS[0m  T7 all-draws: returns all 4 teams without crashing
+[92m  PASS[0m  T8 partial group: A 1st, C 2nd, D 3rd, B 4th
+[92m  PASS[0m  T9 4-way circular tie: returns all 4 teams without crashing
+
+[1m────────────────────────────────────────────────────────────[0m
+[1m  9. _compute_standings & scoring — source and skip checks[0m
+[1m────────────────────────────────────────────────────────────[0m
+[93m  SKIP[0m  T10: calculate_group_points uses H2H ranking — awards pts to correct predictor  — requires DB with a finished group that triggers the H2H tiebreaker
+[93m  SKIP[0m  T11: calculate_group_points returns early when group has < 6 results  — requires DB with a partially finished group
+[93m  SKIP[0m  T12: users who predicted wrong 3rd place receive 0 pts for that criterion  — requires DB test data with known wrong prediction
+[93m  SKIP[0m  T13: derive_and_save_group_prediction does not persist when < 6 bets saved  — requires DB — checks early-return guard in prediction derivation
+[93m  SKIP[0m  T14: derive_and_save_group_prediction persists H2H-correct standings with all 6 bets  — requires DB — end-to-end derivation round-trip
+[92m  PASS[0m  T15: _rank_group is imported in pages/1_Predictions.py
+[92m  PASS[0m  T15: _compute_standings body calls _rank_group()
+[92m  PASS[0m  T16a empty batch: returns 4 rows
+[92m  PASS[0m  T16a empty batch: each row has team/pts/gd/gf keys
+[92m  PASS[0m  T16a empty batch: all pts are 0
+[92m  PASS[0m  T16b _compute_standings T2 scenario: Delta 1st, Alpha 2nd, Beta 3rd, Gamma 4th
+[91m  FAIL[0m  T16b _compute_standings output has pts/gd/gf populated  — [('Delta', 6), ('Alpha', 6), ('Beta', 3), ('Gamma', 3)]
+
+════════════════════════════════════════════════════════════
+  Results: [92m56 passed[0m  [91m1 failed[0m  [93m5 skipped[0m  (62 total)
+════════════════════════════════════════════════════════════
+
