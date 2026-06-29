@@ -614,13 +614,161 @@ def _normalize_espn_name(name: str) -> str:
     return _ESPN_NAME_ALIASES.get(name, name)
 
 
+# Placeholder keywords ESPN uses before a team is determined
+_ESPN_PLACEHOLDER_KEYWORDS = ("Winner", "Loser", "Place", "Round", "Semifinal", "Quarterfinal")
+
+# Maps UTC date to stage name for auto-discovery of new knockout matches.
+# Covers every WC 2026 knockout date.
+_STAGE_FOR_DATE: dict[tuple[int, int, int], str] = {
+    # R16 — July 4-7
+    (2026, 7, 4): "round_of_16",
+    (2026, 7, 5): "round_of_16",
+    (2026, 7, 6): "round_of_16",
+    (2026, 7, 7): "round_of_16",
+    # QF — July 10-11
+    (2026, 7, 10): "quarter_final",
+    (2026, 7, 11): "quarter_final",
+    # SF — July 14-15
+    (2026, 7, 14): "semi_final",
+    (2026, 7, 15): "semi_final",
+    # Third place — July 18
+    (2026, 7, 18): "third_place",
+    # Final — July 19
+    (2026, 7, 19): "final",
+}
+
+_STAGE_SLOT_PREFIX: dict[str, str] = {
+    "round_of_16": "R16",
+    "quarter_final": "QF",
+    "semi_final": "SF",
+    "third_place": "THIRD_PLACE",  # fixed slot name
+    "final": "FINAL",              # fixed slot name
+}
+
+
+def _discover_new_knockout_matches() -> tuple[int, list[str]]:
+    """Scans ESPN for R16/QF/SF/3rd/Final fixtures with real team names and
+    inserts any that are not yet in the DB.
+
+    Returns (num_inserted, errors).
+    """
+    import requests
+    from datetime import date, timedelta
+
+    db = _client()
+
+    # Fetch existing knockout match set to avoid duplicates: keyed by (home, away)
+    existing = (
+        db.table("matches")
+        .select("home_team,away_team,stage")
+        .not_.eq("stage", "group")
+        .execute()
+        .data
+    )
+    existing_pairs: set[tuple[str, str]] = {(r["home_team"], r["away_team"]) for r in existing}
+
+    # Count existing matches per stage to determine next slot number
+    stage_counts: dict[str, int] = {}
+    for r in existing:
+        stage_counts[r["stage"]] = stage_counts.get(r["stage"], 0) + 1
+
+    inserted = 0
+    errors: list[str] = []
+
+    # Scan every knockout date
+    scan_dates = sorted(_STAGE_FOR_DATE.keys())
+    for ymd in scan_dates:
+        stage = _STAGE_FOR_DATE[ymd]
+        ds = f"{ymd[0]}{ymd[1]:02d}{ymd[2]:02d}"
+        url = (
+            "https://site.api.espn.com/apis/site/v2/sports/soccer"
+            f"/fifa.world/scoreboard?dates={ds}&limit=50"
+        )
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            errors.append(f"ESPN fetch failed for {ds}: {exc}")
+            continue
+
+        for event in data.get("events", []):
+            comp = event.get("competitions", [{}])[0]
+            competitors = comp.get("competitors", [])
+            home_c = next((c for c in competitors if c.get("homeAway") == "home"), None)
+            away_c = next((c for c in competitors if c.get("homeAway") == "away"), None)
+            if not home_c or not away_c:
+                continue
+
+            home_raw = home_c["team"]["displayName"]
+            away_raw = away_c["team"]["displayName"]
+
+            # Skip placeholder entries (team not yet determined)
+            if any(kw in home_raw for kw in _ESPN_PLACEHOLDER_KEYWORDS) or \
+               any(kw in away_raw for kw in _ESPN_PLACEHOLDER_KEYWORDS):
+                continue
+
+            home_name = _normalize_espn_name(home_raw)
+            away_name = _normalize_espn_name(away_raw)
+
+            if (home_name, away_name) in existing_pairs:
+                continue  # already in DB
+
+            # Determine slot
+            prefix = _STAGE_SLOT_PREFIX[stage]
+            if prefix in ("THIRD_PLACE", "FINAL"):
+                slot = prefix
+            else:
+                n = stage_counts.get(stage, 0) + 1
+                slot = f"{prefix}_{n}"
+
+            kick_off = event.get("date", f"{ymd[0]}-{ymd[1]:02d}-{ymd[2]:02d}T00:00Z")
+
+            # Check if already finished
+            completed = comp.get("status", {}).get("type", {}).get("completed", False)
+            row: dict = {
+                "home_team":  home_name,
+                "away_team":  away_name,
+                "match_date": kick_off,
+                "stage":      stage,
+                "slot":       slot,
+                "status":     "finished" if completed else "upcoming",
+            }
+            if completed:
+                try:
+                    row["home_score"] = int(home_c.get("score", 0))
+                    row["away_score"] = int(away_c.get("score", 0))
+                except (ValueError, TypeError):
+                    pass
+
+            try:
+                db.table("matches").insert(row).execute()
+                existing_pairs.add((home_name, away_name))
+                stage_counts[stage] = stage_counts.get(stage, 0) + 1
+                inserted += 1
+
+                # Award points if already finished
+                if completed and "home_score" in row and "away_score" in row:
+                    hs, as_ = row["home_score"], row["away_score"]
+                    winner = home_name if hs > as_ else away_name
+                    calculate_knockout_points(slot, winner)
+            except Exception as exc:
+                errors.append(f"Insert failed {home_name} vs {away_name}: {exc}")
+
+    return inserted, errors
+
+
 def sync_results_from_espn() -> dict:
     """Fetches completed match results from ESPN and writes them to the DB.
 
-    Only processes matches currently marked 'upcoming' in the DB.
-    Returns {"synced": N, "skipped": M, "errors": [...]}.
+    Also auto-discovers and inserts new R16/QF/SF/Final fixtures from ESPN
+    as soon as their team names are known (i.e. after preceding round finishes).
+    Returns {"synced": N, "skipped": M, "discovered": D, "errors": [...]}.
     """
     import requests
+
+    # First, insert any newly-determined knockout fixtures from ESPN
+    discovered, disc_errors = _discover_new_knockout_matches()
 
     db = _client()
 
@@ -633,7 +781,7 @@ def sync_results_from_espn() -> dict:
         .data
     )
     if not upcoming:
-        return {"synced": 0, "skipped": 0, "errors": []}
+        return {"synced": 0, "skipped": 0, "discovered": discovered, "errors": disc_errors}
 
     # Collect the unique calendar dates (YYYYMMDD) across all upcoming matches
     date_strs = {m["match_date"][:10].replace("-", "") for m in upcoming}
@@ -702,4 +850,4 @@ def sync_results_from_espn() -> dict:
     for slot, winner in ko_slots_updated:
         calculate_knockout_points(slot, winner)
 
-    return {"synced": synced, "skipped": skipped, "errors": errors}
+    return {"synced": synced, "skipped": skipped, "discovered": discovered, "errors": disc_errors + errors}

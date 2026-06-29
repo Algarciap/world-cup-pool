@@ -34,8 +34,13 @@ st.caption("Fetches completed match scores directly from ESPN and updates the da
 if st.button("🔄 Sync results now", type="primary"):
     with st.spinner("Fetching results from ESPN…"):
         sync_result = sync_results_from_espn()
-    if sync_result["synced"] > 0:
-        st.success(f"✅ Synced {sync_result['synced']} new result(s).")
+    if sync_result["synced"] > 0 or sync_result.get("discovered", 0) > 0:
+        parts = []
+        if sync_result["synced"] > 0:
+            parts.append(f"{sync_result['synced']} result(s) synced")
+        if sync_result.get("discovered", 0) > 0:
+            parts.append(f"{sync_result['discovered']} new fixture(s) added")
+        st.success(f"✅ {', '.join(parts)}.")
         get_group_matches.clear()
     elif not sync_result["errors"]:
         st.info(f"No new results found ({sync_result['skipped']} upcoming match(es) checked).")

@@ -161,9 +161,9 @@ section("5. Lock date")
 
 check("LOCK_DT is June 11 2026 19:00 UTC",
       db.LOCK_DT == datetime(2026, 6, 11, 19, 0, 0, tzinfo=timezone.utc))
-# App is currently before lockout
-check("is_locked() returns False before June 11",
-      not db.is_locked())
+# Tournament is now underway — betting is locked
+check("is_locked() returns True after June 11",
+      db.is_locked())
 
 
 # ══════════════════════════════════════════════════════════════
@@ -599,6 +599,150 @@ check("T33: _compute_third_assignment core logic (row 1 EFGHIJKL) → correct te
           "R32_7":"team_E","R32_15":"team_J","R32_11":"team_I","R32_1":"team_F",
           "R32_12":"team_H","R32_2":"team_G","R32_16":"team_L","R32_8":"team_K"
       }, f"got {assignment_sim}")
+
+# ══════════════════════════════════════════════════════════════
+# 11. ESPN auto-discovery — constants & structure
+# ══════════════════════════════════════════════════════════════
+section("11. ESPN auto-discovery — constants & structure")
+
+# T34: helper function exists
+check("T34: _discover_new_knockout_matches is defined",
+      hasattr(db, "_discover_new_knockout_matches"))
+
+# T35: _STAGE_FOR_DATE covers all 10 knockout dates
+check("T35: _STAGE_FOR_DATE is defined", hasattr(db, "_STAGE_FOR_DATE"))
+if hasattr(db, "_STAGE_FOR_DATE"):
+    sfd = db._STAGE_FOR_DATE
+    r16_dates  = [d for d, s in sfd.items() if s == "round_of_16"]
+    qf_dates   = [d for d, s in sfd.items() if s == "quarter_final"]
+    sf_dates   = [d for d, s in sfd.items() if s == "semi_final"]
+    tp_dates   = [d for d, s in sfd.items() if s == "third_place"]
+    fin_dates  = [d for d, s in sfd.items() if s == "final"]
+    check("T35a: 4 R16 dates", len(r16_dates) == 4, f"got {r16_dates}")
+    check("T35b: 2 QF dates",  len(qf_dates) == 2,  f"got {qf_dates}")
+    check("T35c: 2 SF dates",  len(sf_dates) == 2,  f"got {sf_dates}")
+    check("T35d: 1 3rd-place date", len(tp_dates) == 1, f"got {tp_dates}")
+    check("T35e: 1 Final date",     len(fin_dates) == 1, f"got {fin_dates}")
+    check("T35f: 10 entries total", len(sfd) == 10, f"got {len(sfd)}")
+
+# T36: _STAGE_SLOT_PREFIX maps every stage in _STAGE_FOR_DATE
+check("T36: _STAGE_SLOT_PREFIX is defined", hasattr(db, "_STAGE_SLOT_PREFIX"))
+if hasattr(db, "_STAGE_FOR_DATE") and hasattr(db, "_STAGE_SLOT_PREFIX"):
+    stages_needed = set(db._STAGE_FOR_DATE.values())
+    stages_mapped = set(db._STAGE_SLOT_PREFIX.keys())
+    check("T36a: every stage in _STAGE_FOR_DATE has a slot prefix",
+          stages_needed <= stages_mapped,
+          f"missing: {stages_needed - stages_mapped}")
+    check("T36b: R16 prefix is 'R16'",         db._STAGE_SLOT_PREFIX.get("round_of_16") == "R16")
+    check("T36c: QF prefix is 'QF'",           db._STAGE_SLOT_PREFIX.get("quarter_final") == "QF")
+    check("T36d: SF prefix is 'SF'",           db._STAGE_SLOT_PREFIX.get("semi_final") == "SF")
+    check("T36e: third_place slot is 'THIRD_PLACE'",
+          db._STAGE_SLOT_PREFIX.get("third_place") == "THIRD_PLACE")
+    check("T36f: final slot is 'FINAL'",        db._STAGE_SLOT_PREFIX.get("final") == "FINAL")
+
+# T37: _ESPN_PLACEHOLDER_KEYWORDS covers the key terms
+check("T37: _ESPN_PLACEHOLDER_KEYWORDS is defined", hasattr(db, "_ESPN_PLACEHOLDER_KEYWORDS"))
+if hasattr(db, "_ESPN_PLACEHOLDER_KEYWORDS"):
+    kws = db._ESPN_PLACEHOLDER_KEYWORDS
+    check("T37a: 'Winner' is a placeholder keyword",   "Winner" in kws)
+    check("T37b: 'Round' is a placeholder keyword",    "Round" in kws)
+    check("T37c: 'Loser' is a placeholder keyword",    "Loser" in kws)
+
+# ══════════════════════════════════════════════════════════════
+# 12. Placeholder filtering logic
+# ══════════════════════════════════════════════════════════════
+section("12. Placeholder filtering logic")
+
+if hasattr(db, "_ESPN_PLACEHOLDER_KEYWORDS"):
+    kws = db._ESPN_PLACEHOLDER_KEYWORDS
+
+    def _is_placeholder(name: str) -> bool:
+        return any(kw in name for kw in kws)
+
+    # T38: real ESPN placeholder strings are rejected
+    placeholders = [
+        "Round of 32 3 Winner",
+        "Round of 32 5 Winner",
+        "Semifinal 1 Winner",
+        "Quarterfinal 2 Loser",
+        "3rd Place",
+    ]
+    for name in placeholders:
+        check(f"T38: '{name}' is detected as placeholder",
+              _is_placeholder(name))
+
+    # T39: real team names are not flagged as placeholders
+    real_teams = ["Brazil", "Germany", "Spain", "United States",
+                  "Ivory Coast", "Bosnia and Herzegovina", "DR Congo"]
+    for name in real_teams:
+        check(f"T39: '{name}' is NOT flagged as placeholder",
+              not _is_placeholder(name))
+
+# ══════════════════════════════════════════════════════════════
+# 13. sync_results_from_espn — return shape
+# ══════════════════════════════════════════════════════════════
+section("13. sync_results_from_espn — return shape (live call)")
+
+url = os.getenv("SUPABASE_URL", "")
+key = os.getenv("SUPABASE_SERVICE_KEY", "")
+
+if not url or not key:
+    skip("T40-T45: Supabase credentials not set — skipping live sync tests")
+else:
+    try:
+        # T40: sync returns a dict with the 'discovered' key
+        sync_res = db.sync_results_from_espn()
+        check("T40: sync_results_from_espn returns a dict",
+              isinstance(sync_res, dict))
+        check("T41: result has 'synced' key",     "synced"     in sync_res)
+        check("T42: result has 'skipped' key",    "skipped"    in sync_res)
+        check("T43: result has 'discovered' key", "discovered" in sync_res)
+        check("T44: result has 'errors' key",     "errors"     in sync_res)
+        check("T44b: errors is a list",            isinstance(sync_res.get("errors"), list))
+        check("T44c: no errors on fresh sync",     len(sync_res["errors"]) == 0,
+              f"errors: {sync_res['errors']}")
+        print(f"{INFO}  sync_results_from_espn() → synced={sync_res['synced']}, "
+              f"skipped={sync_res['skipped']}, discovered={sync_res['discovered']}, "
+              f"errors={len(sync_res['errors'])}")
+    except Exception as e:
+        check("T40-T44: sync_results_from_espn call", False, str(e))
+
+    # T45: DB stage breakdown — R32 has 16 rows, later stages have ≥ 0
+    try:
+        _db = db._client()
+        stage_rows = (
+            _db.table("matches")
+            .select("stage")
+            .not_.eq("stage", "group")
+            .execute()
+            .data
+        )
+        stage_counts: dict[str, int] = {}
+        for r in stage_rows:
+            stage_counts[r["stage"]] = stage_counts.get(r["stage"], 0) + 1
+
+        check("T45a: DB has exactly 16 round_of_32 rows",
+              stage_counts.get("round_of_32", 0) == 16,
+              f"got {stage_counts.get('round_of_32', 0)}")
+        check("T45b: R32 row count ≤ 16 (no duplicates inserted)",
+              stage_counts.get("round_of_32", 0) <= 16,
+              f"got {stage_counts.get('round_of_32', 0)}")
+        check("T45c: round_of_16 count ≥ 0",
+              stage_counts.get("round_of_16", 0) >= 0)
+        print(f"{INFO}  DB knockout stage counts: {dict(sorted(stage_counts.items()))}")
+    except Exception as e:
+        check("T45: DB stage breakdown", False, str(e))
+
+    # T46: _discover_new_knockout_matches is idempotent (re-running inserts 0)
+    try:
+        inserted2, errs2 = db._discover_new_knockout_matches()
+        check("T46: second call to _discover_new_knockout_matches inserts 0 rows (idempotent)",
+              inserted2 == 0, f"inserted {inserted2} on second run")
+        check("T46b: no errors on idempotency check", len(errs2) == 0,
+              f"errors: {errs2}")
+    except Exception as e:
+        check("T46: idempotency check", False, str(e))
+
 
 # ══════════════════════════════════════════════════════════════
 # SUMMARY
