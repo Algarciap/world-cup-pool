@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 .streamlit/secrets.toml
 logs/
+scripts/test_out.txt
