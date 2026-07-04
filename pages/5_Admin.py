@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from ui import inject_fonts
-from db import get_all_matches, update_match_result, calculate_group_points, calculate_knockout_points, flag_img, sync_results_from_espn, get_group_matches, get_all_users, update_user_office, OFFICES
+from db import get_all_matches, update_match_result, calculate_group_points, calculate_knockout_points, recalculate_all_knockout_points, flag_img, sync_results_from_espn, get_group_matches, get_all_users, update_user_office, OFFICES
 
 st.set_page_config(page_title="Admin — World Cup 2026", page_icon="🔧", layout="wide")
 inject_fonts()
@@ -67,6 +67,23 @@ if st.button("🔄 Sync results now", type="primary"):
     for err in sync_result["errors"]:
         st.warning(err)
     if sync_result["synced"] > 0:
+        st.rerun()
+
+# ── Recalculate knockout points ───────────────────────────────────────────────
+st.subheader("🔁 Recalculate knockout points")
+st.caption(
+    "Re-scores all finished knockout matches. "
+    "Run this if knockout prediction points are missing or incorrect "
+    "(e.g. after matches were manually added to the DB)."
+)
+if st.button("🔁 Recalculate knockout points", type="secondary"):
+    with st.spinner("Recalculating…"):
+        result = recalculate_all_knockout_points()
+    if result["errors"]:
+        for err in result["errors"]:
+            st.warning(err)
+    else:
+        st.success(f"✅ Recalculated points for {result['updated_slots']} knockout match(es).")
         st.rerun()
 
 st.markdown("---")

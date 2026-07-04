@@ -591,6 +591,41 @@ def calculate_knockout_points(slot: str, actual_winner: str) -> None:
         db.table("knockout_predictions").update({"points_earned": p}).eq("id", pred["id"]).execute()
 
 
+def recalculate_all_knockout_points() -> dict:
+    """Recalculates points for every finished knockout match that has a slot.
+
+    Use this to retroactively fix points when matches were added to the DB
+    before calculate_knockout_points was called (e.g. manually-inserted R32 matches).
+    Returns {"updated_slots": N, "errors": [...]}.
+    """
+    db = _client()
+    finished = (
+        db.table("matches")
+        .select("slot, home_team, away_team, home_score, away_score")
+        .neq("stage", "group")
+        .eq("status", "finished")
+        .execute()
+        .data
+    )
+    updated = 0
+    errors: list[str] = []
+    for match in finished:
+        slot = match.get("slot")
+        if not slot:
+            continue
+        try:
+            hs = match["home_score"]
+            as_ = match["away_score"]
+            if hs is None or as_ is None:
+                continue
+            winner = match["home_team"] if hs > as_ else match["away_team"]
+            calculate_knockout_points(slot, winner)
+            updated += 1
+        except Exception as exc:
+            errors.append(f"{slot}: {exc}")
+    return {"updated_slots": updated, "errors": errors}
+
+
 # ── ESPN result sync ───────────────────────────────────────────────────────────
 
 # Maps ESPN display names → team names used in this app's DB.
