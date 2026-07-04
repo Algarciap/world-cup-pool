@@ -575,14 +575,30 @@ _KNOCKOUT_PTS: dict[str, int] = {
 def calculate_knockout_points(slot: str, actual_winner: str) -> None:
     """Awards knockout-prediction points after a knockout match result is known."""
     db = _client()
-    # Derive round prefix from slot name (e.g. "R32_1" → "R32", "FINAL" → "FINAL")
+    # Determine the two teams that played in this match
+    match_rows = (
+        db.table("matches")
+        .select("home_team, away_team")
+        .eq("slot", slot)
+        .execute()
+        .data
+    )
+    if match_rows:
+        home = match_rows[0]["home_team"]
+        away = match_rows[0]["away_team"]
+        teams = [home, away]
+    else:
+        # Fallback: update only predictions that match the winner
+        teams = [actual_winner]
+
     prefix = slot.split("_")[0]
     pts_for_correct = _KNOCKOUT_PTS.get(prefix, 2)
 
+    # Match by team name rather than slot to handle Annex C slot numbering mismatches
     preds = (
         db.table("knockout_predictions")
-        .select("*")
-        .eq("slot", slot)
+        .select("id, predicted_winner")
+        .in_("predicted_winner", teams)
         .execute()
         .data
     )
@@ -618,8 +634,24 @@ def recalculate_all_knockout_points() -> dict:
             as_ = match["away_score"]
             if hs is None or as_ is None:
                 continue
-            winner = match["home_team"] if hs > as_ else match["away_team"]
-            calculate_knockout_points(slot, winner)
+            home = match["home_team"]
+            away = match["away_team"]
+            winner = home if hs > as_ else away
+            # Determine points for this round
+            prefix = slot.split("_")[0]
+            pts = _KNOCKOUT_PTS.get(prefix, 2)
+            # Match predictions by team name (not slot) to handle Annex C slot
+            # numbering mismatches between knockout_predictions and matches.
+            preds = (
+                db.table("knockout_predictions")
+                .select("id, predicted_winner")
+                .in_("predicted_winner", [home, away])
+                .execute()
+                .data
+            )
+            for pred in preds:
+                p = pts if pred["predicted_winner"] == winner else 0
+                db.table("knockout_predictions").update({"points_earned": p}).eq("id", pred["id"]).execute()
             updated += 1
         except Exception as exc:
             errors.append(f"{slot}: {exc}")
