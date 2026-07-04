@@ -620,6 +620,13 @@ _ESPN_PLACEHOLDER_KEYWORDS = ("Winner", "Loser", "Place", "Round", "Semifinal", 
 # Maps UTC date to stage name for auto-discovery of new knockout matches.
 # Covers every WC 2026 knockout date.
 _STAGE_FOR_DATE: dict[tuple[int, int, int], str] = {
+    # R32 — June 28 – July 3
+    (2026, 6, 28): "round_of_32",
+    (2026, 6, 29): "round_of_32",
+    (2026, 6, 30): "round_of_32",
+    (2026, 7, 1):  "round_of_32",
+    (2026, 7, 2):  "round_of_32",
+    (2026, 7, 3):  "round_of_32",
     # R16 — July 4-7
     (2026, 7, 4): "round_of_16",
     (2026, 7, 5): "round_of_16",
@@ -638,6 +645,7 @@ _STAGE_FOR_DATE: dict[tuple[int, int, int], str] = {
 }
 
 _STAGE_SLOT_PREFIX: dict[str, str] = {
+    "round_of_32": "R32",
     "round_of_16": "R16",
     "quarter_final": "QF",
     "semi_final": "SF",
