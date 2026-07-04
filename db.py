@@ -575,7 +575,7 @@ _KNOCKOUT_PTS: dict[str, int] = {
 def calculate_knockout_points(slot: str, actual_winner: str) -> None:
     """Awards knockout-prediction points after a knockout match result is known."""
     db = _client()
-    # Determine the two teams that played in this match
+    # Get the two teams in this match
     match_rows = (
         db.table("matches")
         .select("home_team, away_team")
@@ -588,17 +588,18 @@ def calculate_knockout_points(slot: str, actual_winner: str) -> None:
         away = match_rows[0]["away_team"]
         teams = [home, away]
     else:
-        # Fallback: update only predictions that match the winner
         teams = [actual_winner]
 
     prefix = slot.split("_")[0]
     pts_for_correct = _KNOCKOUT_PTS.get(prefix, 2)
 
-    # Match by team name rather than slot to handle Annex C slot numbering mismatches
+    # Scope to the same round prefix so R32 scoring doesn't touch R16/QF/SF/FINAL rows.
+    # Uses team-name matching (not slot) to handle Annex C slot numbering mismatches.
     preds = (
         db.table("knockout_predictions")
         .select("id, predicted_winner")
         .in_("predicted_winner", teams)
+        .like("slot", f"{prefix}%")
         .execute()
         .data
     )
@@ -642,10 +643,12 @@ def recalculate_all_knockout_points() -> dict:
             pts = _KNOCKOUT_PTS.get(prefix, 2)
             # Match predictions by team name (not slot) to handle Annex C slot
             # numbering mismatches between knockout_predictions and matches.
+            # Scope to same round prefix to avoid cross-round contamination.
             preds = (
                 db.table("knockout_predictions")
                 .select("id, predicted_winner")
                 .in_("predicted_winner", [home, away])
+                .like("slot", f"{prefix}%")
                 .execute()
                 .data
             )
