@@ -7,8 +7,10 @@ on:
   #   21:30 UTC = 23:30 Madrid  — after the 19:00 UTC kickoffs
   #   00:30 UTC = 02:30 Madrid  — after the 22:00 UTC kickoffs
   #   03:30 UTC = 05:30 Madrid  — after the 01:00 UTC kickoffs
+  #   20:30 UTC = 22:30 Madrid  — after the 18:00 UTC kickoffs (QF/SF/Final)
   schedule:
     - cron: "30 18 * * *"
+    - cron: "30 20 * * *"
     - cron: "30 21 * * *"
     - cron: "30 0  * * *"
     - cron: "30 3  * * *"

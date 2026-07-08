@@ -18,8 +18,9 @@ from db import sync_results_from_espn  # noqa: E402
 
 result = sync_results_from_espn()
 
-print(f"✅ Synced : {result['synced']}")
-print(f"⏭  Skipped: {result['skipped']} (not yet finished on ESPN)")
+print(f"✅ Synced    : {result['synced']}")
+print(f"🆕 Discovered: {result.get('discovered', 0)} new fixture(s) added")
+print(f"⏭  Skipped  : {result['skipped']} (not yet finished on ESPN)")
 
 if result["errors"]:
     for err in result["errors"]:
