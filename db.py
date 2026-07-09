@@ -209,6 +209,28 @@ def get_all_matches() -> list[dict]:
     return db.table("matches").select("*").order("match_date").execute().data
 
 
+def insert_match(
+    home_team: str,
+    away_team: str,
+    match_date: str,
+    stage: str,
+    slot: str | None = None,
+) -> dict:
+    """Manually inserts a fixture into the matches table. Returns the new row."""
+    db = _client()
+    row: dict = {
+        "home_team":  home_team.strip(),
+        "away_team":  away_team.strip(),
+        "match_date": match_date,
+        "stage":      stage,
+        "status":     "upcoming",
+    }
+    if slot:
+        row["slot"] = slot.strip()
+    result = db.table("matches").insert(row).execute()
+    return result.data[0]
+
+
 # ── Match bets (group stage) ───────────────────────────────────────────────────
 
 @st.cache_data(ttl=120, show_spinner=False)

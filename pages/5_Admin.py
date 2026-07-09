@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from ui import inject_fonts
-from db import get_all_matches, update_match_result, calculate_group_points, calculate_knockout_points, recalculate_all_knockout_points, flag_img, sync_results_from_espn, get_group_matches, get_all_users, update_user_office, OFFICES
+from db import get_all_matches, update_match_result, calculate_group_points, calculate_knockout_points, recalculate_all_knockout_points, flag_img, sync_results_from_espn, get_group_matches, get_all_users, update_user_office, insert_match, OFFICES, TEAM_FLAGS
 
 st.set_page_config(page_title="Admin — World Cup 2026", page_icon="🔧", layout="wide")
 inject_fonts()
@@ -85,6 +85,60 @@ if st.button("🔁 Recalculate knockout points", type="secondary"):
     else:
         st.success(f"✅ Recalculated points for {result['updated_slots']} knockout match(es).")
         st.rerun()
+
+st.markdown("---")
+
+# ── Add missing fixture manually ───────────────────────────────────────────────
+st.subheader("➕ Add missing fixture")
+st.caption("Use this when a knockout match isn't picked up by ESPN sync.")
+
+_KNOWN_TEAMS = sorted(TEAM_FLAGS.keys())
+_STAGE_OPTIONS = [
+    ("round_of_32",  "Round of 32"),
+    ("round_of_16",  "Round of 16"),
+    ("quarter_final","Quarter-Final"),
+    ("semi_final",   "Semi-Final"),
+    ("third_place",  "Third-Place Play-off"),
+    ("final",        "Final"),
+]
+
+with st.form("add_fixture_form"):
+    col_h, col_a = st.columns(2)
+    with col_h:
+        new_home = st.selectbox("Home team", _KNOWN_TEAMS, key="new_home")
+    with col_a:
+        new_away = st.selectbox("Away team", _KNOWN_TEAMS, index=1, key="new_away")
+    col_d, col_s, col_sl = st.columns(3)
+    with col_d:
+        new_date = st.date_input("Match date", key="new_date")
+    with col_s:
+        stage_val = st.selectbox(
+            "Stage",
+            options=[v for v, _ in _STAGE_OPTIONS],
+            format_func=lambda v: dict(_STAGE_OPTIONS)[v],
+            key="new_stage",
+        )
+    with col_sl:
+        new_slot = st.text_input("Slot (e.g. QF_1)", key="new_slot")
+    add_btn = st.form_submit_button("➕ Add fixture")
+
+if add_btn:
+    if new_home == new_away:
+        st.error("Home and away teams must be different.")
+    else:
+        # Check for duplicate
+        existing = get_all_matches()
+        already = any(
+            m["home_team"] == new_home and m["away_team"] == new_away
+            for m in existing
+        )
+        if already:
+            st.warning(f"{new_home} vs {new_away} is already in the database.")
+        else:
+            kick_off = f"{new_date}T00:00:00+00:00"
+            insert_match(new_home, new_away, kick_off, stage_val, new_slot or None)
+            st.success(f"✅ Added {new_home} vs {new_away} ({dict(_STAGE_OPTIONS)[stage_val]})")
+            st.rerun()
 
 st.markdown("---")
 
