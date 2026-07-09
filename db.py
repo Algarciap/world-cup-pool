@@ -702,9 +702,11 @@ _STAGE_FOR_DATE: dict[tuple[int, int, int], str] = {
     (2026, 7, 5): "round_of_16",
     (2026, 7, 6): "round_of_16",
     (2026, 7, 7): "round_of_16",
-    # QF — July 10-11
+    # QF — July 9-12
+    (2026, 7, 9):  "quarter_final",
     (2026, 7, 10): "quarter_final",
     (2026, 7, 11): "quarter_final",
+    (2026, 7, 12): "quarter_final",
     # SF — July 14-15
     (2026, 7, 14): "semi_final",
     (2026, 7, 15): "semi_final",
