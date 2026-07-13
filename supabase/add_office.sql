@@ -11,7 +11,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS office TEXT;
 --     ALTER VIEW for column additions)
 DROP VIEW IF EXISTS leaderboard CASCADE;
 
-CREATE VIEW leaderboard AS
+CREATE VIEW leaderboard WITH (security_invoker = true) AS
 WITH
   bet_pts AS (
       SELECT user_id, COALESCE(SUM(points_earned), 0) AS total

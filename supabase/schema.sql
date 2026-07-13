@@ -217,7 +217,7 @@ CREATE POLICY "Public read knockout points"
 -- Leaderboard: total points per user across all prediction tables
 -- Uses pre-aggregated subqueries to avoid the cartesian product that would
 -- arise from joining three one-to-many tables directly on user_id.
-CREATE VIEW leaderboard AS
+CREATE VIEW leaderboard WITH (security_invoker = true) AS
 WITH
   bet_pts AS (
       SELECT user_id, COALESCE(SUM(points_earned), 0) AS total
